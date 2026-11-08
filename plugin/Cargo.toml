@@ -1,16 +1,16 @@
 [package]
 name = "tauri-plugin-krizaka"
 version = "0.4.0"
-description = "The Tauri side of krizaka-desktop: folder grants, dropped files, watched folders, the Keychain session, the native menu, deep links and the navigation guard of a Krizaka Mac app"
+description = "The Tauri side of krizaka-rust: folder grants, dropped files, watched folders, the Keychain session, the native menu, deep links and the navigation guard of a Krizaka Mac app"
 authors = ["Krizaka"]
 edition = "2021"
 license = "Apache-2.0"
 rust-version = "1.88"
-repository = "https://github.com/krizaka/krizaka-desktop"
+repository = "https://github.com/krizaka/krizaka-rust"
 links = "tauri-plugin-krizaka"
 
 [dependencies]
-krizaka-desktop = { path = "..", features = ["keychain"] }
+krizaka-rust = { path = "..", features = ["keychain"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }

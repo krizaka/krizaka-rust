@@ -1,17 +1,17 @@
-# krizaka-desktop
+# krizaka-rust
 
-[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=krizaka_krizaka-desktop&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=krizaka_krizaka-desktop) [![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=krizaka_krizaka-desktop&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=krizaka_krizaka-desktop) [![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=krizaka_krizaka-desktop&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=krizaka_krizaka-desktop) [![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=krizaka_krizaka-desktop&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=krizaka_krizaka-desktop)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=krizaka_krizaka-rust&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=krizaka_krizaka-rust) [![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=krizaka_krizaka-rust&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=krizaka_krizaka-rust) [![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=krizaka_krizaka-rust&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=krizaka_krizaka-rust) [![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=krizaka_krizaka-rust&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=krizaka_krizaka-rust)
 
 What every Krizaka **macOS app** (Tauri 2) shares, written once. Decision:
 [ADR-005](https://github.com/krizaka/.github/blob/main/docs/adr/ADR-005-tauri-app-kit.md).
 
 Two crates in this repository:
 
-- **`krizaka-desktop`** (the root): the rules, in pure Rust with no dependency on Tauri, so they are tested without a window.
+- **`krizaka-rust`** (the root): the rules, in pure Rust with no dependency on Tauri, so they are tested without a window.
 - **`tauri-plugin-krizaka`** (`plugin/`): the Tauri glue that applies them in an app — one `.plugin(...)` line. Its page side,
   typed, is [`@krizaka/app-desktop`](https://ui.krizaka.com/packages/app-desktop) on npm.
 
-| Module (`krizaka-desktop`) | What it does |
+| Module (`krizaka-rust`) | What it does |
 | :-- | :-- |
 | `scope` | Folder grants, stored as canonical paths. A path is readable only inside a folder the user granted: `..` and symlinks that leave a grant are refused, and the home folder, `/`, `/Users`, `/Volumes`, the system folders, `~/.ssh`, `~/.aws`, `~/Library`… can never be granted |
 | `files` | Listing (folders first, hidden and partial files skipped, links never followed) and previewing (text, image, PDF within limits) inside a grant |
@@ -34,7 +34,7 @@ Two crates in this repository:
 
 ```toml
 [dependencies]
-tauri-plugin-krizaka = { git = "https://github.com/krizaka/krizaka-desktop", tag = "v0.2.0" }
+tauri-plugin-krizaka = { git = "https://github.com/krizaka/krizaka-rust", tag = "v0.2.0" }
 ```
 
 ```rust
@@ -59,7 +59,7 @@ tauri::Builder::default()
 
 The window's capability lists `krizaka:default` (and `core:window:allow-start-dragging` for `AppShell desktop`'s title
 bar); never `fs`, `shell` or `opener`. The app registers the folder picker with `tauri_plugin_krizaka::dialog::init()` (re-exported: no dependency of its
-own); a plugin registered from inside another plugin's setup deadlocks Tauri. Start an app from [`template/`](template) (`npx degit krizaka/krizaka-desktop/template my-app`; it was the `template-tauri-app` repository until 2026-10-30, now `krizaka-template-desktop`).
+own); a plugin registered from inside another plugin's setup deadlocks Tauri. Start an app from [`krizaka-template`](https://github.com/krizaka/krizaka-template) (target `desktop`; it was the `template-tauri-app` repository until 2026-10-30, now `krizaka-template-desktop`).
 
 Extracted from Sovkora Desktop (`krizaka/sovkora`, `apps/desktop`), whose tests came with it. macOS first (Apple Silicon, macOS 14+).
 

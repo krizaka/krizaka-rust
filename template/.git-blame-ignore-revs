@@ -1,2 +1,0 @@
-# Commits that only reformat code (git blame --ignore-revs-file; GitHub reads this file by itself).
-# Add the SHA of `chore(format): prettier` once it is on main (the `formatter` rule, krizaka/.github#427).

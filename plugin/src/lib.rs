@@ -1,4 +1,4 @@
-//! The Tauri side of `krizaka-desktop`: one plugin a Krizaka Mac app adds, so its own `lib.rs` only holds what is the
+//! The Tauri side of `krizaka-rust`: one plugin a Krizaka Mac app adds, so its own `lib.rs` only holds what is the
 //! product's (its commands, each resolving its paths through [`Kit::resolve`]).
 //!
 //! ```ignore
@@ -16,9 +16,9 @@
 //!
 //! What it brings, and what the page reaches through `@krizaka/app-desktop` (capability `krizaka:default`):
 //! - folders the person grants with the native picker, listed, revoked, watched; files dropped on the window
-//!   (event [`DROPPED`]); every path through the kit's one gate ([`krizaka_desktop::access::Access`]);
+//!   (event [`DROPPED`]); every path through the kit's one gate ([`krizaka_rust::access::Access`]);
 //! - small secrets in the macOS Keychain (the session token), the `KeyValueStorage` of `@krizaka/app-client`;
-//! - the native menu bar the page describes in its own words ([`krizaka_desktop::menu::MenuSpec`]), clicks sent back
+//! - the native menu bar the page describes in its own words ([`krizaka_rust::menu::MenuSpec`]), clicks sent back
 //!   as [`MENU`];
 //! - deep links (`<scheme>://…` and the product's web links) turned into a route ([`OPEN`], and [`take_links`] for the
 //!   ones that arrived before the page listened);
@@ -29,17 +29,17 @@ mod commands;
 mod menu;
 mod watch;
 
-pub use krizaka_desktop as kit;
+pub use krizaka_rust as kit;
 /// The folder picker the kit's commands open. The app registers it next to the kit —
 /// `.plugin(tauri_plugin_krizaka::dialog::init())` — and needs no dependency of its own: a plugin registered from inside
 /// another plugin's setup deadlocks Tauri's plugin store (found running the first app).
 pub use tauri_plugin_dialog as dialog;
 
-use krizaka_desktop::access::Access;
-use krizaka_desktop::deep_link::{self, LinkRules};
-use krizaka_desktop::nav_guard::{self, Navigation};
-use krizaka_desktop::scope::ScopeStore;
-use krizaka_desktop::secrets::{Checked, SecretStore};
+use krizaka_rust::access::Access;
+use krizaka_rust::deep_link::{self, LinkRules};
+use krizaka_rust::nav_guard::{self, Navigation};
+use krizaka_rust::scope::ScopeStore;
+use krizaka_rust::secrets::{Checked, SecretStore};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -158,7 +158,7 @@ impl Builder {
         self
     }
 
-    /// The update feed, with `{channel}` (see [`krizaka_desktop::update::feed_url`]).
+    /// The update feed, with `{channel}` (see [`krizaka_rust::update::feed_url`]).
     pub fn update_feed(mut self, template: &str) -> Self {
         self.update_feed = Some(template.to_string());
         self
@@ -191,7 +191,7 @@ impl Builder {
             ])
             .setup(move |app, _api| {
                 if let Some(template) = &update_feed {
-                    krizaka_desktop::update::feed_url(template, Default::default())?;
+                    krizaka_rust::update::feed_url(template, Default::default())?;
                 }
                 let hosted = hosted
                     .iter()
@@ -201,7 +201,7 @@ impl Builder {
                 let scope = ScopeStore::load(&data_dir.join(SCOPE_FILE));
                 app.manage(Kit {
                     access: Mutex::new(Access::new(scope)),
-                    secrets: Box::new(Checked(krizaka_desktop::keychain::Keychain::new(
+                    secrets: Box::new(Checked(krizaka_rust::keychain::Keychain::new(
                         &app.config().identifier,
                     ))),
                     links: LinkRules {
@@ -338,7 +338,7 @@ fn opened<'a, R: Runtime>(app: &AppHandle<R>, urls: impl Iterator<Item = &'a str
 /// Sets the menu bar from Rust, for an app whose page cannot send it (a hosted app): the same checks as the command.
 pub fn set_menu<R: Runtime>(
     app: &AppHandle<R>,
-    spec: &krizaka_desktop::menu::MenuSpec,
+    spec: &krizaka_rust::menu::MenuSpec,
 ) -> Result<(), String> {
     commands::apply_menu(app, &app.kit(), spec)
 }

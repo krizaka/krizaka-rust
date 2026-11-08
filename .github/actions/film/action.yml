@@ -1,7 +1,7 @@
 # The shared film tooling of the Mac apps' journeys (Verikora, Sovkora; krizaka-internal#230). It installs ffmpeg and exposes where
 # the tooling lives, so a journey imports `createFilm` / `client` from there and a job joins the frames:
 #
-#   - uses: krizaka/krizaka-desktop/.github/actions/film@<sha>
+#   - uses: krizaka/krizaka-rust/.github/actions/film@<sha>
 #     id: film
 #   - run: KRIZAKA_FILM_DIR=${{ steps.film.outputs.dir }} node scripts/desktop-journey.mjs ... --film
 #   - run: node "${{ steps.film.outputs.dir }}/join-cli.mjs" <out dir> <out>.mp4      # fails under 30 frames

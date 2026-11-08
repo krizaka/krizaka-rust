@@ -1,6 +1,6 @@
-# krizaka-desktop — agent contract
+# krizaka-rust — agent contract
 
-> Governance of **`krizaka/krizaka-desktop`**. Decision: [krizaka/.github ADR-005](https://github.com/krizaka/.github/blob/main/docs/adr/ADR-005-tauri-app-kit.md).
+> Governance of **`krizaka/krizaka-rust`**. Decision: [krizaka/.github ADR-005](https://github.com/krizaka/.github/blob/main/docs/adr/ADR-005-tauri-app-kit.md).
 
 ## What belongs here
 
@@ -8,8 +8,8 @@
   navigation guard, deep links, the menu checks, secrets, settings, the update channel) are the root crate: pure Rust, no
   `tauri` dependency, tested on any machine. The **glue** that applies them (commands, events, the Keychain, the native
   menu, `RunEvent::Opened`) is `plugin/` (`tauri-plugin-krizaka`); it decides nothing the root crate does not check.
-- Not here: a product's commands, its sidecar, its messages, its brand. Those are the product's, wired from
-  `template/` (ex `template-tauri-app`, now the `krizaka-template-desktop` repository). The page side of the plugin is `@krizaka/app-desktop` (krizaka-ui): its `COMMANDS` list and
+- Not here: a product's commands, its sidecar, its messages, its brand. Those are the product's, started from
+  [`krizaka-template`](https://github.com/krizaka/krizaka-template) (target `desktop`). The page side of the plugin is `@krizaka/app-desktop` (krizaka-ui): its `COMMANDS` list and
   `plugin/build.rs` change together.
 
 ## Rules
