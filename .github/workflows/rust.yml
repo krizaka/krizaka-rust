@@ -1,5 +1,5 @@
 # The kit's checks (reusable so the required check is `ci / CI gate`, like every Krizaka repository).
-name: rust
+name: Rust checks
 
 on:
   workflow_call:

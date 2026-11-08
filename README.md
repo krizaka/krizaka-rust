@@ -70,3 +70,17 @@ app window (`film.mjs`, no screen recording, no macOS permission), collapsed (bl
 joined into one mp4 (`join-cli.mjs`, refuses under 30 frames), the web clips trimmed (`trim-cli.mjs`), and a small client of the
 app's embedded WebDriver (`webdriver.mjs`). No dependency; `node --test film/test/*.test.mjs`. The composite action installs
 ffmpeg and outputs the directory.
+
+<!-- krizaka:workflows:start -->
+## Workflows
+
+What runs in the Actions tab of this repository.
+
+- **CI** (`ci.yml`): Lint, tests and build of the repository. Runs on push, on every pull request.
+- **Dependabot auto-merge** (`dependabot-automerge.yml`): Auto-merges safe Dependabot updates. Runs on every pull request.
+- **Language guards** (`lang-guards.yml`): Rust guards: rustfmt, clippy, cargo-deny, tests. Runs on every pull request, in the merge queue, on push.
+- **Merge resolution** (`merge-resolution.yml`): Fails a PR that drops what main added without a deletion-explained line. Runs on every pull request.
+- **Rust checks** (`rust.yml`): The Rust checks of the kit. Runs called by other workflows.
+- **Scorecard** (`scorecard.yml`): OpenSSF Scorecard of the repository. Runs when branch rules change, on a schedule, on demand.
+- **Security scan** (`security.yml`): Secret scan (gitleaks) and workflow scan (zizmor); both are required checks. Runs on every pull request, in the merge queue, on push.
+<!-- krizaka:workflows:end -->
