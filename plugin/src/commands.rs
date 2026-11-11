@@ -2,10 +2,10 @@
 //! a path, the key and value rules for a secret, the menu checks for the menu bar.
 
 use crate::{menu, watch, Kit, FOLDER_CHANGED};
-use krizaka_desktop::files::{self, Listing};
-use krizaka_desktop::menu::MenuSpec;
-use krizaka_desktop::settings;
-use krizaka_desktop::update::{self, Channel};
+use krizaka_rust::files::{self, Listing};
+use krizaka_rust::menu::MenuSpec;
+use krizaka_rust::settings;
+use krizaka_rust::update::{self, Channel};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tauri::{command, AppHandle, Runtime, State};
@@ -17,7 +17,7 @@ fn paths_of(roots: &[PathBuf]) -> Vec<String> {
     roots.iter().map(|r| r.display().to_string()).collect()
 }
 
-fn save_scope(kit: &Kit, access: &krizaka_desktop::access::Access) -> Res<()> {
+fn save_scope(kit: &Kit, access: &krizaka_rust::access::Access) -> Res<()> {
     access
         .scope()
         .save(&kit.scope_file())

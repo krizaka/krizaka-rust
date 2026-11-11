@@ -1,7 +1,7 @@
 //! Builds the macOS menu bar from a checked [`MenuSpec`]: the app menu, Edit, the product's menus, Window.
 
 use crate::{KitExt, MENU};
-use krizaka_desktop::menu::MenuSpec;
+use krizaka_rust::menu::MenuSpec;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Runtime};
 
