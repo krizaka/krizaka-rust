@@ -1,8 +1,0 @@
-minimumReleaseAgeExclude:
-  - '@krizaka/tailwind@3.46.0'
-  - '@krizaka/tokens@3.46.0'
-  - '@krizaka/ui@3.46.0'
-
-# Security pins for vulnerable transitive deps that Dependabot cannot move (a parent pins the major).
-overrides:
-  "minimatch@>=7.0.0 <11.0.1": "11.0.4" # GHSA-g3hv-75wg-m249: no fix before 11 (via eslint, typescript-eslint)
