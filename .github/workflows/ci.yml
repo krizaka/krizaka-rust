@@ -21,6 +21,7 @@ jobs:
   film:
     name: film tooling
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -31,6 +32,13 @@ jobs:
         with:
           node-version: 24
       - run: node --test film/test/*.test.mjs
+      # The action as a caller uses it: its `dir` output must point at the scripts (an empty one sent callers to /film).
+      - uses: ./.github/actions/film
+        id: film
+      - name: the action's dir output holds the film scripts
+        env:
+          FILM_DIR: ${{ steps.film.outputs.dir }}
+        run: test -n "$FILM_DIR" && test -f "$FILM_DIR/film.mjs" && test -f "$FILM_DIR/join-cli.mjs" || { echo "dir output is '$FILM_DIR'"; exit 1; }
 
   # The one check main requires (org profile: « CI gate »); it always reports and fails when a leg failed or was skipped.
   gate:

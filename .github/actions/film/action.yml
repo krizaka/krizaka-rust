@@ -11,10 +11,15 @@ description: ffmpeg and the path of the film scripts (film.mjs, webdriver.mjs, j
 outputs:
   dir:
     description: Directory of the film scripts.
-    value: ${{ github.action_path }}/../../../film
+    # github.action_path is empty inside an output's value (it only resolves in steps): the step below writes the path.
+    value: ${{ steps.where.outputs.dir }}
 runs:
   using: composite
   steps:
+    - name: where the film scripts are
+      id: where
+      shell: bash
+      run: echo "dir=$(cd "$GITHUB_ACTION_PATH/../../../film" && pwd)" >> "$GITHUB_OUTPUT"
     - name: ffmpeg
       shell: bash
       run: command -v ffmpeg >/dev/null || { if [ "$RUNNER_OS" = "macOS" ]; then brew install ffmpeg; else sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg; fi; }
