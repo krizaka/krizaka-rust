@@ -11,6 +11,9 @@ import { join } from "node:path";
 export const FPS = 10;
 // @fixed: three seconds of film; fewer frames than this is a film that failed, never a clip to publish
 export const MIN_FRAMES = 30;
+// @fixed: the frame list holds one entry per distinct screen (identical frames are collapsed into one hold), so the join counts
+// screens, never raw frames: 192 frames that collapse to 18 screens are a journey; fewer than three screens is not
+export const MIN_SCREENS = 3;
 // @fixed: the joined film is 1280 x 800, the app's window ratio, whatever the window is
 export const FILM_SIZE = { width: 1280, height: 800 };
 export const FRAMES_DIR = "frames";
@@ -19,8 +22,8 @@ export const FRAME_LIST = "film-frames.txt";
 const frameName = (n) => `frame-${String(n).padStart(5, "0")}.png`;
 
 /** Fails loudly when the film holds fewer frames than `min`: an empty film is an error, never a green job with no clip. */
-export function assertFrames(count, min = MIN_FRAMES) {
-  if (!Number.isInteger(count) || count < min) throw new Error(`the film holds ${count} frame(s), at least ${min} are needed: the journey filmed nothing`);
+export function assertFrames(count, min = MIN_FRAMES, unit = "frame") {
+  if (!Number.isInteger(count) || count < min) throw new Error(`the film holds ${count} ${unit}(s), at least ${min} are needed: the journey filmed nothing`);
   return count;
 }
 
@@ -98,8 +101,8 @@ export function frameList(input, fps = FPS) {
 
 /**
  * The recorder: `start()` takes a screenshot of the window every 1/FPS s (`shoot()` answers a base64 PNG) until `stop()`; no
- * directory, no film. A screenshot that fails is skipped (the count tells); `finish()` writes the frame list and throws when
- * there are fewer than MIN_FRAMES.
+ * directory, no film. A screenshot that fails is skipped (`skipped` and `lastCause` tell); `finish()` writes the frame list and
+ * throws when there are fewer than MIN_FRAMES, naming what was skipped and why.
  */
 export function createFilm({
   dir,
@@ -112,7 +115,7 @@ export function createFilm({
 } = {}) {
   const frames = [];
   const origin = now();
-  const state = { running: false };
+  const state = { running: false, skipped: 0, lastCause: undefined };
   let loop = Promise.resolve();
   const interval = 1000 / fps;
   async function run() {
@@ -128,8 +131,10 @@ export function createFilm({
           const pixels = dimensions ? dimensions.width * dimensions.height : undefined;
           frames.push({ file, at: began - origin, size: bytes.length, pixels, hash: createHash("sha256").update(bytes).digest("hex") });
         }
-      } catch {
-        // a screenshot the window could not give (a transition): the next one will do
+      } catch (error) {
+        // a screenshot the window could not give (a transition): the next one will do; the count and the last cause are kept for finish()
+        state.skipped += 1;
+        state.lastCause = error instanceof Error ? error.message : String(error);
       }
       await sleep(Math.max(0, interval - (now() - began)));
     }
@@ -138,6 +143,14 @@ export function createFilm({
     frames,
     get count() {
       return frames.length;
+    },
+    /** How many captures were skipped (a failed screenshot or a frame that could not be saved). */
+    get skipped() {
+      return state.skipped;
+    },
+    /** The message of the last skipped capture, `undefined` when none was. */
+    get lastCause() {
+      return state.lastCause;
     },
     start() {
       if (!dir || state.running) return;
@@ -160,7 +173,12 @@ export function createFilm({
     },
     finish(min = MIN_FRAMES) {
       if (!dir) return 0;
-      assertFrames(frames.length, min);
+      try {
+        assertFrames(frames.length, min);
+      } catch (error) {
+        const cause = state.skipped > 0 ? `; ${state.skipped} capture(s) skipped, last cause: ${state.lastCause}` : "";
+        throw new Error(`${error.message}${cause}`, { cause: error });
+      }
       assertLivelyStart(collapse(frames, fps));
       save(join(dir, FRAME_LIST), frameList(frames, fps));
       return frames.length;

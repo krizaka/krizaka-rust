@@ -86,7 +86,7 @@ The `code` is the contract (snake_case, never renamed): all of them are listed, 
 
 The journeys of the Mac apps (Verikora, Sovkora) are filmed the same way, with one implementation: WebDriver screenshots of the
 app window (`film.mjs`, no screen recording, no macOS permission), collapsed (blank start cut, idle stretches held at most 1.2 s),
-joined into one mp4 (`join-cli.mjs`, refuses under 30 frames), the web clips trimmed (`trim-cli.mjs`), and a small client of the
+joined into one mp4 (`join-cli.mjs`, refuses under 3 screens: it counts the screens of the frame list, not the raw frames; `finish()` refuses under 30 raw frames and names the skipped captures and the last cause), the web clips trimmed (`trim-cli.mjs`), and a small client of the
 app's embedded WebDriver (`webdriver.mjs`). No dependency; `node --test film/test/*.test.mjs`. The composite action installs
 ffmpeg and outputs the directory.
 

@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 
-import { assertFrames, assertLivelyStart, BLANK_BYTES, blankBytes, collapse, isBlank, JOIN_FPS, MOVING_CAP_INTERVALS, pngSize, REFERENCE_PIXELS, trimStart, createFilm, HOLD_S, FILM_SIZE, FPS, frameList, framesInList, joinArgs, MIN_FRAMES } from "../film.mjs";
+import { assertFrames, assertLivelyStart, BLANK_BYTES, blankBytes, collapse, isBlank, JOIN_FPS, MOVING_CAP_INTERVALS, pngSize, REFERENCE_PIXELS, trimStart, createFilm, HOLD_S, FILM_SIZE, FPS, frameList, framesInList, joinArgs, MIN_FRAMES, MIN_SCREENS } from "../film.mjs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -138,10 +141,100 @@ describe("the joined film", () => {
     assert.match(args[args.indexOf("-vf") + 1], new RegExp(`fps=${JOIN_FPS}$`));
   });
   it("is joined by a script that refuses a film with too few frames and never screen-records", () => {
-    assert.match(read("../join-cli.mjs"), /assertFrames\(framesInList/);
+    assert.match(read("../join-cli.mjs"), /assertFrames\(framesInList[^;]*MIN_SCREENS/);
     for (const file of ["../film.mjs", "../join-cli.mjs", "../webdriver.mjs", "../../.github/actions/film/action.yml"]) {
       assert.doesNotMatch(read(file).replace(/^\s*(\/\/|#).*$/gm, ""), /screencapture/, file);
     }
+  });
+});
+
+describe("the join counts screens, not raw frames", () => {
+  const stubFfmpeg = () => {
+    const bin = mkdtempSync(join(tmpdir(), "film-bin-"));
+    writeFileSync(join(bin, "ffmpeg"), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(bin, "ffmpeg"), 0o755);
+    return bin;
+  };
+  const joinWith = (screens, perScreen) => {
+    const perOf = typeof perScreen === "function" ? perScreen : () => perScreen;
+    const dir = mkdtempSync(join(tmpdir(), "film-join-"));
+    const frames = [];
+    for (let s = 0; s < screens; s += 1) {
+      for (let k = 0; k < perOf(s); k += 1) {
+        frames.push({ file: `frames/f-${frames.length}.png`, at: frames.length * 100, size: BLANK_BYTES * 2, hash: `screen-${s}` });
+      }
+    }
+    writeFileSync(join(dir, "film-frames.txt"), frameList(frames));
+    const run = spawnSync(process.execPath, [new URL("../join-cli.mjs", import.meta.url).pathname, dir, join(dir, "out.mp4")], {
+      env: { ...process.env, PATH: `${stubFfmpeg()}:${process.env.PATH}` },
+      encoding: "utf8",
+    });
+    return { run, frames: frames.length };
+  };
+  it("names the minimum of screens", () => {
+    assert.equal(MIN_SCREENS, 3);
+  });
+  it("accepts a film of 192 raw frames that collapses to 18 screens", () => {
+    const { run, frames } = joinWith(18, (s) => (s < 12 ? 11 : 10));
+    assert.equal(frames, 192);
+    assert.equal(run.status, 0, run.stderr);
+  });
+  it("refuses a film of fewer than MIN_SCREENS screens, however many raw frames it had", () => {
+    const { run } = joinWith(MIN_SCREENS - 1, 100);
+    assert.notEqual(run.status, 0);
+    assert.match(run.stderr, /screen\(s\)/);
+  });
+});
+
+describe("finish says what it skipped", () => {
+  const quick = () => {
+    let t = 0;
+    return { now: () => t, sleep: async (ms) => void (t += ms) };
+  };
+  it("a full disk is the reported cause, not a silent skip", async () => {
+    const c = quick();
+    let n = 0;
+    const film = createFilm({
+      dir: "out",
+      shoot: async () => {
+        n += 1;
+        if (n === 5) film.cancel();
+        return big(n);
+      },
+      now: c.now,
+      sleep: c.sleep,
+      save: () => {
+        throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
+      },
+      makeDir: () => undefined,
+    });
+    film.start();
+    await film.done;
+    assert.equal(film.skipped, 5);
+    assert.throws(() => film.finish(), /5 capture\(s\) skipped.*ENOSPC/);
+  });
+  it("one failed screenshot is still skipped and the film goes on", async () => {
+    const c = quick();
+    let n = 0;
+    const film = createFilm({
+      dir: "out",
+      shoot: async () => {
+        n += 1;
+        if (n === 4) film.cancel();
+        if (n === 2) throw new Error("transition");
+        return big(n);
+      },
+      now: c.now,
+      sleep: c.sleep,
+      save: () => undefined,
+      makeDir: () => undefined,
+    });
+    film.start();
+    await film.done;
+    assert.equal(film.count, 3);
+    assert.equal(film.skipped, 1);
+    assert.equal(film.lastCause, "transition");
+    assert.equal(film.finish(3), 3);
   });
 });
 
