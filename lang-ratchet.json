@@ -5,5 +5,5 @@
   "clippy:clippy::inefficient_to_string": 2,
   "clippy:clippy::map_unwrap_or": 4,
   "clippy:clippy::unnecessary_wraps": 1,
-  "clippy:clippy::unwrap_used": 116
+  "clippy:clippy::unwrap_used": 98
 }

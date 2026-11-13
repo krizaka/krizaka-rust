@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -32,6 +33,116 @@ impl std::fmt::Display for ScopeError {
 }
 
 impl std::error::Error for ScopeError {}
+
+/// A path the scope let through: canonical, inside a granted folder (or a file dropped this session), not sensitive.
+///
+/// Only [`ScopeStore::resolve`] and [`crate::access::Access::resolve`] make one, so a function that takes a `ScopedPath`
+/// can never be handed a path the scope did not see. A read goes through [`ScopedPath::open`], which confirms that the
+/// opened file is still this one.
+///
+/// ```
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use krizaka_rust::scope::ScopeStore;
+/// let dir = tempfile::tempdir()?;
+/// let home = dir.path().canonicalize()?;
+/// std::fs::create_dir(home.join("docs"))?;
+/// std::fs::write(home.join("docs/a.txt"), "hello")?;
+/// let mut scope = ScopeStore::default();
+/// scope.grant_with_home(&home.join("docs"), Some(&home))?;
+/// let file = scope.resolve_with_home(&home.join("docs/a.txt"), Some(&home))?;
+/// assert_eq!(krizaka_rust::files::preview(&file)?.text.as_deref(), Some("hello"));
+/// # Ok(())
+/// # }
+/// ```
+///
+/// It cannot be made from a bare path:
+///
+/// ```compile_fail
+/// let _ = krizaka_rust::scope::ScopedPath(std::path::PathBuf::from("/etc/hosts"));
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ScopedPath(PathBuf);
+
+impl ScopedPath {
+    /// `canon` has passed the scope's checks: only the scope's gates call this.
+    pub(crate) fn new(canon: PathBuf) -> Self {
+        ScopedPath(canon)
+    }
+
+    pub fn as_path(&self) -> &Path {
+        &self.0
+    }
+
+    pub fn into_path_buf(self) -> PathBuf {
+        self.0
+    }
+
+    /// Opens the file once, read only, and confirms the descriptor is the file the scope let through.
+    ///
+    /// The path may have changed since it was resolved: the file, or one of its parent folders, swapped for a link out
+    /// of the grant. The last component is opened without following a link, and the system is asked where the opened
+    /// file really is; anything but the resolved path is refused. Read the metadata and the content from the returned
+    /// file, never from the path again.
+    pub fn open(&self) -> Result<fs::File, ScopeError> {
+        let file = open_no_follow(&self.0).map_err(|e| match e.kind() {
+            io::ErrorKind::NotFound => ScopeError::NotFound(self.0.display().to_string()),
+            _ => ScopeError::Io(e.to_string()),
+        })?;
+        let opened = opened_path(&file).map_err(|e| ScopeError::Io(e.to_string()))?;
+        if opened != self.0 {
+            return Err(ScopeError::OutsideScope(self.0.display().to_string()));
+        }
+        Ok(file)
+    }
+}
+
+impl AsRef<Path> for ScopedPath {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+/// Read only, the last component never followed if it is a link, never blocking on a pipe swapped in.
+#[cfg(unix)]
+fn open_no_follow(path: &Path) -> io::Result<fs::File> {
+    use rustix::fs::{Mode, OFlags};
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    Ok(fs::File::from(rustix::fs::open(
+        path,
+        flags,
+        Mode::empty(),
+    )?))
+}
+
+#[cfg(not(unix))]
+fn open_no_follow(path: &Path) -> io::Result<fs::File> {
+    fs::File::open(path)
+}
+
+/// Where the system says the opened file is (`F_GETPATH`), whatever path was used to open it.
+#[cfg(target_os = "macos")]
+fn opened_path(file: &fs::File) -> io::Result<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    let path = rustix::fs::getpath(file)?;
+    Ok(PathBuf::from(std::ffi::OsString::from_vec(
+        path.into_bytes(),
+    )))
+}
+
+#[cfg(target_os = "linux")]
+fn opened_path(file: &fs::File) -> io::Result<PathBuf> {
+    use std::os::fd::AsRawFd;
+    fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))
+}
+
+/// Elsewhere the opened file cannot be located, so nothing is read.
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn opened_path(_file: &fs::File) -> io::Result<PathBuf> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "the opened file cannot be located on this system",
+    ))
+}
 
 /// Directories (relative to the user's home) that can never be granted, nor read through a grant.
 const SENSITIVE_HOME_DIRS: &[&str] = &[
@@ -138,7 +249,7 @@ impl ScopeStore {
 
     /// Resolves `path` to its canonical form **iff** it lies inside a granted folder and is not a
     /// sensitive location. This is the one gate every read goes through.
-    pub fn resolve(&self, path: &Path) -> Result<PathBuf, ScopeError> {
+    pub fn resolve(&self, path: &Path) -> Result<ScopedPath, ScopeError> {
         self.resolve_with_home(path, home_dir().as_deref())
     }
 
@@ -146,7 +257,7 @@ impl ScopeStore {
         &self,
         path: &Path,
         home: Option<&Path>,
-    ) -> Result<PathBuf, ScopeError> {
+    ) -> Result<ScopedPath, ScopeError> {
         let canon = path
             .canonicalize()
             .map_err(|_| ScopeError::NotFound(path.display().to_string()))?;
@@ -156,7 +267,7 @@ impl ScopeStore {
         if is_sensitive(&canon, home) {
             return Err(ScopeError::Forbidden(canon.display().to_string()));
         }
-        Ok(canon)
+        Ok(ScopedPath::new(canon))
     }
 }
 

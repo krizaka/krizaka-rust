@@ -1,6 +1,6 @@
 //! Who may read what: the folders the person granted, and the files they dropped on the window this session.
 
-use crate::scope::{ScopeError, ScopeStore};
+use crate::scope::{ScopeError, ScopeStore, ScopedPath};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -38,11 +38,11 @@ impl Access {
     }
 
     /// The one gate: a granted folder's file, or a file dropped this session. Anything else is refused.
-    pub fn resolve(&self, path: &Path) -> Result<PathBuf, ScopeError> {
+    pub fn resolve(&self, path: &Path) -> Result<ScopedPath, ScopeError> {
         match self.scope.resolve(path) {
             Ok(p) => Ok(p),
             Err(error) => match path.canonicalize() {
-                Ok(canon) if self.dropped.contains(&canon) => Ok(canon),
+                Ok(canon) if self.dropped.contains(&canon) => Ok(ScopedPath::new(canon)),
                 _ => Err(error),
             },
         }
