@@ -15,6 +15,10 @@ base64 = "0.23"
 url = "2"
 keyring = { version = "4", optional = true }
 
+[target.'cfg(unix)'.dependencies]
+# opens a scoped file without following a link and asks the system where the descriptor is (`ScopedPath::open`)
+rustix = { version = "1", features = ["fs"] }
+
 [features]
 # the macOS Keychain store of the secrets (the plugin and apps without the plugin use it)
 keychain = ["dep:keyring"]

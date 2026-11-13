@@ -1,5 +1,6 @@
 //! Listing and previewing files — always through the scope (`ScopeStore::resolve`), never directly.
 
+use crate::scope::ScopedPath;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
 use std::fs;
@@ -97,10 +98,16 @@ pub fn is_noise(name: &str) -> bool {
 }
 
 /// Lists a directory already resolved through the scope. Hidden files are skipped; folders first.
-pub fn list_dir(dir: &Path) -> Result<Listing, String> {
+///
+/// A bare path is refused at compile time:
+///
+/// ```compile_fail
+/// let _ = krizaka_rust::files::list_dir(std::path::Path::new("/etc"));
+/// ```
+pub fn list_dir(dir: &ScopedPath) -> Result<Listing, String> {
     let mut entries: Vec<Entry> = Vec::new();
     let mut truncated = false;
-    let rd = fs::read_dir(dir).map_err(|e| e.to_string())?;
+    let rd = fs::read_dir(dir.as_path()).map_err(|e| e.to_string())?;
     for item in rd.flatten() {
         let name = item.file_name().to_string_lossy().to_string();
         if is_noise(&name) {
@@ -144,12 +151,22 @@ pub fn list_dir(dir: &Path) -> Result<Listing, String> {
     Ok(Listing { entries, truncated })
 }
 
-pub fn preview(file: &Path) -> Result<Preview, String> {
-    let meta = fs::metadata(file).map_err(|e| e.to_string())?;
+/// Previews a file already resolved through the scope.
+///
+/// A bare path is refused at compile time: only the scope makes the path a preview reads.
+///
+/// ```compile_fail
+/// let _ = krizaka_rust::files::preview(std::path::Path::new("/etc/hosts"));
+/// ```
+pub fn preview(file: &ScopedPath) -> Result<Preview, String> {
+    // One descriptor for the metadata and the content: the path is not looked at again once it is open.
+    let opened = file.open().map_err(|e| e.to_string())?;
+    let meta = opened.metadata().map_err(|e| e.to_string())?;
     if !meta.is_file() {
         return Err("not a file".into());
     }
     let name = file
+        .as_path()
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
@@ -164,58 +181,167 @@ pub fn preview(file: &Path) -> Result<Preview, String> {
     };
     match kind {
         "text" => {
-            let mut buf = Vec::new();
-            fs::File::open(file)
-                .and_then(|f| f.take(MAX_TEXT_PREVIEW as u64).read_to_end(&mut buf))
-                .map_err(|e| e.to_string())?;
+            let buf = read_at_most(opened, MAX_TEXT_PREVIEW as u64)?;
             p.text = Some(String::from_utf8_lossy(&buf).to_string());
         }
         "image" if meta.len() <= MAX_IMAGE_PREVIEW => {
-            p.data = Some(STANDARD.encode(fs::read(file).map_err(|e| e.to_string())?));
+            p.data = Some(STANDARD.encode(read_at_most(opened, MAX_IMAGE_PREVIEW)?));
         }
         "pdf" if meta.len() <= MAX_PDF_PREVIEW => {
-            p.data = Some(STANDARD.encode(fs::read(file).map_err(|e| e.to_string())?));
+            p.data = Some(STANDARD.encode(read_at_most(opened, MAX_PDF_PREVIEW)?));
         }
         _ => {}
     }
     Ok(p)
 }
 
+/// The first `limit` bytes of an opened file (a file that grew since its metadata was read is still capped).
+fn read_at_most(file: fs::File, limit: u64) -> Result<Vec<u8>, String> {
+    let mut buf = Vec::new();
+    file.take(limit)
+        .read_to_end(&mut buf)
+        .map_err(|e| e.to_string())?;
+    Ok(buf)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
+    use crate::scope::ScopeStore;
+    use std::path::PathBuf;
+    use tempfile::{tempdir, TempDir};
 
-    #[test]
-    fn lists_folders_first_hides_noise_and_skips_symlinks() {
-        let d = tempdir().unwrap();
-        fs::create_dir(d.path().join("b-folder")).unwrap();
-        fs::write(d.path().join("a.pdf"), "%PDF").unwrap();
-        fs::write(d.path().join(".DS_Store"), "x").unwrap();
-        fs::write(d.path().join("~$draft.docx"), "x").unwrap();
-        fs::write(d.path().join("big.crdownload"), "x").unwrap();
-        #[cfg(unix)]
-        std::os::unix::fs::symlink("/etc/hosts", d.path().join("link.txt")).unwrap();
-        let l = list_dir(d.path()).unwrap();
-        let names: Vec<_> = l.entries.iter().map(|e| e.name.as_str()).collect();
-        assert_eq!(names, ["b-folder", "a.pdf"]);
-        assert_eq!(l.entries[1].kind, "pdf");
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    /// A fake home with the folder `docs` granted, and a folder outside every grant.
+    struct Granted {
+        home: TempDir,
+        outside: TempDir,
+        scope: ScopeStore,
+    }
+
+    impl Granted {
+        fn new() -> Result<Granted, Box<dyn std::error::Error>> {
+            let home = tempdir()?;
+            let outside = tempdir()?;
+            fs::create_dir(home.path().join("docs"))?;
+            let mut scope = ScopeStore::default();
+            let canon = home.path().canonicalize()?;
+            scope.grant_with_home(&canon.join("docs"), Some(&canon))?;
+            Ok(Granted {
+                home,
+                outside,
+                scope,
+            })
+        }
+
+        fn docs(&self) -> PathBuf {
+            self.home.path().join("docs")
+        }
+
+        fn resolve(&self, path: &Path) -> Result<ScopedPath, Box<dyn std::error::Error>> {
+            let home = self.home.path().canonicalize()?;
+            Ok(self.scope.resolve_with_home(path, Some(&home))?)
+        }
     }
 
     #[test]
-    fn previews_text_is_capped_and_pdf_is_base64() {
-        let d = tempdir().unwrap();
-        fs::write(d.path().join("n.md"), "x".repeat(MAX_TEXT_PREVIEW + 100)).unwrap();
-        fs::write(d.path().join("a.pdf"), "%PDF-1.4").unwrap();
-        fs::write(d.path().join("x.bin"), [0u8, 1, 2]).unwrap();
-        let t = preview(&d.path().join("n.md")).unwrap();
-        assert_eq!(t.text.unwrap().len(), MAX_TEXT_PREVIEW);
-        let p = preview(&d.path().join("a.pdf")).unwrap();
+    fn lists_folders_first_hides_noise_and_skips_symlinks() -> TestResult {
+        let granted = Granted::new()?;
+        let d = granted.docs();
+        fs::create_dir(d.join("b-folder"))?;
+        fs::write(d.join("a.pdf"), "%PDF")?;
+        fs::write(d.join(".DS_Store"), "x")?;
+        fs::write(d.join("~$draft.docx"), "x")?;
+        fs::write(d.join("big.crdownload"), "x")?;
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("/etc/hosts", d.join("link.txt"))?;
+        let l = list_dir(&granted.resolve(&d)?)?;
+        let names: Vec<_> = l.entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["b-folder", "a.pdf"]);
+        assert_eq!(l.entries[1].kind, "pdf");
+        Ok(())
+    }
+
+    #[test]
+    fn previews_text_is_capped_and_pdf_is_base64() -> TestResult {
+        let granted = Granted::new()?;
+        let d = granted.docs();
+        fs::write(d.join("n.md"), "x".repeat(MAX_TEXT_PREVIEW + 100))?;
+        fs::write(d.join("a.pdf"), "%PDF-1.4")?;
+        fs::write(d.join("x.bin"), [0u8, 1, 2])?;
+        let t = preview(&granted.resolve(&d.join("n.md"))?)?;
+        assert_eq!(t.size, (MAX_TEXT_PREVIEW + 100) as u64);
+        assert_eq!(t.text.map(|text| text.len()), Some(MAX_TEXT_PREVIEW));
+        let p = preview(&granted.resolve(&d.join("a.pdf"))?)?;
         assert_eq!(p.mime, "application/pdf");
-        assert_eq!(STANDARD.decode(p.data.unwrap()).unwrap(), b"%PDF-1.4");
-        let b = preview(&d.path().join("x.bin")).unwrap();
+        assert_eq!(
+            p.data.map(|data| STANDARD.decode(data)).transpose()?,
+            Some(b"%PDF-1.4".to_vec())
+        );
+        let b = preview(&granted.resolve(&d.join("x.bin"))?)?;
         assert!(b.text.is_none() && b.data.is_none());
-        assert!(preview(d.path()).is_err());
+        assert!(preview(&granted.resolve(&d)?).is_err());
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_swapped_for_a_link_out_after_resolve_is_not_read() -> TestResult {
+        let granted = Granted::new()?;
+        let target = granted.docs().join("a.txt");
+        fs::write(&target, "public")?;
+        fs::write(granted.outside.path().join("a.txt"), "secret")?;
+        let resolved = granted.resolve(&target)?;
+        fs::remove_file(&target)?;
+        std::os::unix::fs::symlink(granted.outside.path().join("a.txt"), &target)?;
+        let read = preview(&resolved);
+        assert!(read.is_err(), "read through a swapped link: {read:?}");
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_parent_swapped_for_a_link_out_after_resolve_is_not_read() -> TestResult {
+        let granted = Granted::new()?;
+        let sub = granted.docs().join("sub");
+        fs::create_dir(&sub)?;
+        fs::write(sub.join("a.txt"), "public")?;
+        fs::write(granted.outside.path().join("a.txt"), "secret")?;
+        let resolved = granted.resolve(&sub.join("a.txt"))?;
+        fs::rename(&sub, granted.docs().join("old"))?;
+        std::os::unix::fs::symlink(granted.outside.path(), &sub)?;
+        let read = preview(&resolved);
+        assert!(read.is_err(), "read through a swapped parent: {read:?}");
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_swapped_for_a_pipe_after_resolve_is_refused_without_blocking() -> TestResult {
+        let granted = Granted::new()?;
+        let target = granted.docs().join("a.txt");
+        fs::write(&target, "public")?;
+        let resolved = granted.resolve(&target)?;
+        fs::remove_file(&target)?;
+        let made = std::process::Command::new("mkfifo").arg(&target).status()?;
+        assert!(made.success());
+        assert!(preview(&resolved).is_err());
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_path_typed_in_another_case_is_previewed() -> TestResult {
+        let granted = Granted::new()?;
+        fs::write(granted.docs().join("Note.txt"), "hello")?;
+        let typed = granted.docs().join("NOTE.TXT");
+        if !typed.exists() {
+            return Ok(()); // a case-sensitive volume: the other case is another file
+        }
+        let resolved = granted.resolve(&typed)?;
+        assert_eq!(preview(&resolved)?.text.as_deref(), Some("hello"));
+        Ok(())
     }
 
     #[test]

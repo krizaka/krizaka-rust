@@ -87,7 +87,7 @@ pub fn watch_folder<R: Runtime>(
     kit: State<'_, Kit>,
     path: String,
 ) -> Res<String> {
-    let dir = kit.resolve(Path::new(&path))?;
+    let dir = kit.resolve(Path::new(&path))?.into_path_buf();
     if !dir.is_dir() {
         return Err(format!("not a folder: {}", dir.display()));
     }

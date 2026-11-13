@@ -38,7 +38,7 @@ pub use tauri_plugin_dialog as dialog;
 use krizaka_rust::access::Access;
 use krizaka_rust::deep_link::{self, LinkRules};
 use krizaka_rust::nav_guard::{self, Navigation};
-use krizaka_rust::scope::ScopeStore;
+use krizaka_rust::scope::{ScopeStore, ScopedPath};
 use krizaka_rust::secrets::{Checked, SecretStore};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -78,8 +78,9 @@ pub struct Kit {
 }
 
 impl Kit {
-    /// The one gate for a product's own command: a file of a granted folder, or a file dropped this session.
-    pub fn resolve(&self, path: &Path) -> Result<PathBuf, String> {
+    /// The one gate for a product's own command: a file of a granted folder, or a file dropped this session. Read it with
+    /// [`ScopedPath::open`], which confirms the opened file is still the one resolved.
+    pub fn resolve(&self, path: &Path) -> Result<ScopedPath, String> {
         self.access
             .lock()
             .map_err(|e| e.to_string())?
@@ -158,7 +159,8 @@ impl Builder {
         self
     }
 
-    /// The update feed, with `{channel}` (see [`krizaka_rust::update::feed_url`]).
+    /// The update feed, with `{channel}` (see [`krizaka_rust::update::feed_url`]). The app's `plugins.updater` must
+    /// then hold a `pubkey`, or the plugin refuses to start (see [`krizaka_rust::update`]).
     pub fn update_feed(mut self, template: &str) -> Self {
         self.update_feed = Some(template.to_string());
         self
@@ -190,6 +192,10 @@ impl Builder {
                 commands::set_update_channel,
             ])
             .setup(move |app, _api| {
+                let updater = app.config().plugins.0.get("updater");
+                if update_feed.is_some() || updater.is_some() {
+                    krizaka_rust::update::require_pubkey(updater)?;
+                }
                 if let Some(template) = &update_feed {
                     krizaka_rust::update::feed_url(template, Default::default())?;
                 }

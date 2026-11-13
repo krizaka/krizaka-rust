@@ -18,7 +18,8 @@ pub trait SecretStore: Send + Sync {
     fn remove(&self, key: &str) -> Result<(), String>;
 }
 
-/// A key is lowercase letters, digits, `.`, `-`, `_`, at most 64 characters (`verikora.session`).
+/// A key is lowercase letters, digits, `.`, `-`, `_`, at most 64 characters (`verikora.session`). A refused key is not
+/// repeated in the error: the page may have put a secret in the wrong argument.
 pub fn check_key(key: &str) -> Result<(), String> {
     let ok = !key.is_empty()
         && key.len() <= 64
@@ -28,7 +29,7 @@ pub fn check_key(key: &str) -> Result<(), String> {
     if ok {
         Ok(())
     } else {
-        Err(format!("not a secret key: {key}"))
+        Err("not a secret key".into())
     }
 }
 
@@ -119,5 +120,23 @@ mod tests {
         assert!(secrets.set("s", &"a".repeat(MAX_VALUE + 1)).is_err());
         assert!(secrets.set("s", "nul\0byte").is_err());
         assert_eq!(secrets.get("s").unwrap(), None);
+    }
+
+    #[test]
+    fn a_refused_key_or_value_is_not_echoed_in_the_error() -> Result<(), String> {
+        let secrets = Checked(MemorySecrets::default());
+        let key = format!("Bearer {TOKEN}");
+        let refusals = [
+            secrets.set(&key, "x").err(),
+            secrets.get(&key).err(),
+            secrets.remove(&key).err(),
+            secrets.set("s", &format!("{TOKEN}\0")).err(),
+            secrets.set("s", &TOKEN.repeat(MAX_VALUE)).err(),
+        ];
+        for refusal in refusals {
+            let message = refusal.ok_or("a bad key or value was accepted")?;
+            assert!(!message.contains(TOKEN), "the input is echoed: {message}");
+        }
+        Ok(())
     }
 }
