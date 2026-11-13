@@ -34,7 +34,7 @@ Two crates in this repository:
 
 ```toml
 [dependencies]
-tauri-plugin-krizaka = { git = "https://github.com/krizaka/krizaka-rust", tag = "v0.2.0" }
+tauri-plugin-krizaka = { git = "https://github.com/krizaka/krizaka-rust", tag = "v0.4.0" }
 ```
 
 ```rust
