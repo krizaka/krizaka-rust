@@ -169,6 +169,9 @@ pub const DEFAULT_INTERVAL: u64 = 5;
 /// Added to the interval on `slow_down`.
 // @fixed: RFC 8628 §3.5
 pub const SLOW_DOWN_STEP: u64 = 5;
+/// How long a device code lives when the provider does not say.
+// @fixed: RFC 8628 §3.2 lets the provider choose; fifteen minutes is the usual window to type a code
+pub const DEFAULT_EXPIRES_IN: u64 = 900;
 /// A token is refreshed this many seconds before it expires.
 // @fixed: a margin for the clock and the round trip, not a business setting
 pub const REFRESH_MARGIN: u64 = 60;
@@ -193,7 +196,10 @@ pub fn start(t: &dyn Transport, p: &Provider, scope: &str) -> Result<DeviceCode,
         user_code: text(&v, "user_code").ok_or_else(|| missing("user_code"))?,
         verification_uri: text(&v, "verification_uri")
             .ok_or_else(|| missing("verification_uri"))?,
-        expires_in: v.get("expires_in").and_then(Value::as_u64).unwrap_or(900),
+        expires_in: v
+            .get("expires_in")
+            .and_then(Value::as_u64)
+            .unwrap_or(DEFAULT_EXPIRES_IN),
         interval: v
             .get("interval")
             .and_then(Value::as_u64)

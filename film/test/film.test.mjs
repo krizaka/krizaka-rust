@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { assertFrames, assertLivelyStart, BLANK_BYTES, collapse, createFilm, HOLD_S, FILM_SIZE, FPS, frameList, framesInList, joinArgs, MIN_FRAMES } from "../film.mjs";
+import { assertFrames, assertLivelyStart, BLANK_BYTES, blankBytes, collapse, isBlank, JOIN_FPS, MOVING_CAP_INTERVALS, pngSize, REFERENCE_PIXELS, trimStart, createFilm, HOLD_S, FILM_SIZE, FPS, frameList, framesInList, joinArgs, MIN_FRAMES } from "../film.mjs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -131,14 +131,68 @@ describe("the start and the idle stretches of the film", () => {
 describe("the joined film", () => {
   it("is one silent mp4 of the frame list, letterboxed to one size", () => {
     const args = joinArgs("film-frames.txt", "film.mp4");
-    assert.deepEqual(args.slice(0, 7), ["-y", "-f", "concat", "-safe", "0", "-i", "film-frames.txt"]);
+    assert.deepEqual(args.slice(0, 5), ["-y", "-f", "concat", "-i", "film-frames.txt"]);
     assert.match(args[args.indexOf("-vf") + 1], new RegExp(`scale=${FILM_SIZE.width}:${FILM_SIZE.height}:force_original_aspect_ratio=decrease`));
     assert.ok(args.includes("-an") && args.at(-1) === "film.mp4");
+    assert.ok(!args.includes("-safe"), "the unsafe concat mode is not needed: the list holds relative paths");
+    assert.match(args[args.indexOf("-vf") + 1], new RegExp(`fps=${JOIN_FPS}$`));
   });
   it("is joined by a script that refuses a film with too few frames and never screen-records", () => {
     assert.match(read("../join-cli.mjs"), /assertFrames\(framesInList/);
     for (const file of ["../film.mjs", "../join-cli.mjs", "../webdriver.mjs", "../../.github/actions/film/action.yml"]) {
       assert.doesNotMatch(read(file).replace(/^\s*(\/\/|#).*$/gm, ""), /screencapture/, file);
     }
+  });
+});
+
+describe("the blank frame check follows the pixel count", () => {
+  const png = (width, height, size) => {
+    const bytes = Buffer.alloc(size);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes);
+    bytes.writeUInt32BE(width, 16);
+    bytes.writeUInt32BE(height, 20);
+    return bytes;
+  };
+  it("reads the size of a PNG, and nothing from other bytes", () => {
+    assert.deepEqual(pngSize(png(2560, 1600, 100)), { width: 2560, height: 1600 });
+    assert.equal(pngSize(Buffer.from("not a png at all, but long enough to hold a header")), null);
+  });
+  it("at 1x, the threshold is BLANK_BYTES", () => {
+    assert.equal(blankBytes(REFERENCE_PIXELS), BLANK_BYTES);
+    assert.equal(isBlank({ size: BLANK_BYTES - 1, pixels: REFERENCE_PIXELS }), true);
+    assert.equal(isBlank({ size: BLANK_BYTES, pixels: REFERENCE_PIXELS }), false);
+  });
+  it("at 2x, four times the pixels, the threshold is four times higher", () => {
+    assert.equal(blankBytes(REFERENCE_PIXELS * 4), BLANK_BYTES * 4);
+    assert.equal(isBlank({ size: BLANK_BYTES * 2, pixels: REFERENCE_PIXELS * 4 }), true, "a size that shows a 1x screen is blank at 2x");
+    assert.equal(isBlank({ size: BLANK_BYTES * 4, pixels: REFERENCE_PIXELS * 4 }), false);
+  });
+  it("a frame of unknown size counts as the reference window", () => {
+    assert.equal(isBlank({ size: BLANK_BYTES - 1 }), true);
+    assert.equal(isBlank({ size: BLANK_BYTES }), false);
+  });
+  it("trims the blank start of a 2x film with the 2x threshold, and the recorder reads the pixels from the PNG", async () => {
+    const f = (n, size) => ({ file: `frames/${n}.png`, at: n * 100, hash: String(n), size, pixels: REFERENCE_PIXELS * 4 });
+    assert.deepEqual(trimStart([f(1, BLANK_BYTES * 2), f(2, BLANK_BYTES * 4)]).map((e) => e.file), ["frames/2.png"]);
+    let n = 0;
+    const film = createFilm({
+      dir: "out",
+      shoot: async () => {
+        n += 1;
+        if (n === 2) film.cancel();
+        return png(2560, 1600, 20_000).toString("base64");
+      },
+      now: () => 0,
+      sleep: async () => undefined,
+      save: () => undefined,
+      makeDir: () => undefined,
+    });
+    film.start();
+    await film.done;
+    assert.equal(film.frames[0].pixels, 2560 * 1600);
+  });
+  it("names the cap of a moving frame", () => {
+    const entries = collapse([{ file: "a", at: 0, hash: "a", size: 9000 }, { file: "b", at: 60_000, hash: "b", size: 9000 }]);
+    assert.equal(entries[0].seconds, (MOVING_CAP_INTERVALS * 100) / 1000);
   });
 });

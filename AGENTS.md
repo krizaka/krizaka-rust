@@ -15,7 +15,12 @@
 ## Rules
 
 - **A read goes through `ScopeStore::resolve`.** Never a path from the UI used directly.
-- No product word, no network, no environment read in these crates: values arrive as parameters (`Builder`).
+- No product word, no network, no environment read in these crates: values arrive as parameters (`Builder`). One
+  exception, named: `scope::home_dir()` reads `HOME` (the plugin's one entry point); every rule takes the home as a
+  parameter (`*_with_home`), so every refusal is tested without the environment.
+- **A limit is a per-call parameter** (`files::Limits`): the app passes it, the kit has a default and a hard ceiling for
+  each; a value above the ceiling is lowered, never obeyed. A list is sorted, then cut.
+- One table gives a file's kind and MIME (`files::TYPES`); a new type is one line there.
 - Every refusal has a test: `..`, a symlink out of a grant, a never-grantable folder, a look-alike host.
 - A change to what may be granted or to the guard's rules is breaking: apps in the wild depend on it.
 
