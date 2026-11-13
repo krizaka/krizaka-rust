@@ -14,7 +14,7 @@ pub enum OriginError {
 }
 
 impl OriginError {
-    /// The stable code the page reads (snake_case, never reworded).
+    /// The stable code the page reads (never reworded).
     pub fn code(self) -> &'static str {
         match self {
             OriginError::NotAUrl => "origin_not_a_url",
