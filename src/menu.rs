@@ -102,23 +102,92 @@ const NAMED_KEYS: &[&str] = &[
     "Plus",
 ];
 
-/// A label is words a person reads: not empty, not too long, no control character.
-fn check_label(label: &str, what: &str) -> Result<(), String> {
-    let n = label.chars().count();
-    if label.trim().is_empty() || n > MAX_LABEL || label.chars().any(char::is_control) {
-        return Err(format!("{what}: a label of 1 to {MAX_LABEL} characters"));
+/// What the page sent that the menu refuses. Standard labels are named by their field; anything else the page wrote
+/// (an id, a title, a shortcut) is never repeated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuError {
+    /// A standard label (the field's name) is empty, too long or holds a control character.
+    BadStandardLabel(&'static str),
+    BadMenuTitle,
+    BadItemLabel,
+    TooManyMenus,
+    /// A menu has no item, or more than [`MAX_ITEMS`].
+    BadItemCount,
+    BadId,
+    DuplicateId,
+    EmptyAccelerator,
+    BadModifier,
+    BadKey,
+    /// The shortcut belongs to a standard menu.
+    ReservedAccelerator,
+    DuplicateAccelerator,
+}
+
+impl MenuError {
+    /// The stable code the page reads.
+    pub fn code(self) -> &'static str {
+        match self {
+            MenuError::BadStandardLabel(_) => "menu_bad_standard_label",
+            MenuError::BadMenuTitle => "menu_bad_menu_title",
+            MenuError::BadItemLabel => "menu_bad_item_label",
+            MenuError::TooManyMenus => "menu_too_many_menus",
+            MenuError::BadItemCount => "menu_bad_item_count",
+            MenuError::BadId => "menu_bad_id",
+            MenuError::DuplicateId => "menu_duplicate_id",
+            MenuError::EmptyAccelerator => "menu_empty_accelerator",
+            MenuError::BadModifier => "menu_bad_modifier",
+            MenuError::BadKey => "menu_bad_key",
+            MenuError::ReservedAccelerator => "menu_reserved_accelerator",
+            MenuError::DuplicateAccelerator => "menu_duplicate_accelerator",
+        }
     }
-    Ok(())
+}
+
+impl std::fmt::Display for MenuError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MenuError::BadStandardLabel(what) => {
+                write!(f, "{what}: a label of 1 to {MAX_LABEL} characters")
+            }
+            MenuError::BadMenuTitle => write!(f, "a menu title of 1 to {MAX_LABEL} characters"),
+            MenuError::BadItemLabel => write!(f, "an item label of 1 to {MAX_LABEL} characters"),
+            MenuError::TooManyMenus => write!(f, "at most {MAX_MENUS} menus"),
+            MenuError::BadItemCount => write!(f, "1 to {MAX_ITEMS} items in a menu"),
+            MenuError::BadId => f.write_str("not a menu id"),
+            MenuError::DuplicateId => f.write_str("an id is used twice"),
+            MenuError::EmptyAccelerator => f.write_str("an empty accelerator"),
+            MenuError::BadModifier => f.write_str("not a modifier"),
+            MenuError::BadKey => f.write_str("not a key"),
+            MenuError::ReservedAccelerator => f.write_str("a shortcut belongs to a standard menu"),
+            MenuError::DuplicateAccelerator => f.write_str("a shortcut is used twice"),
+        }
+    }
+}
+
+impl std::error::Error for MenuError {}
+
+/// A label is words a person reads: not empty, not too long, no control character.
+fn is_label(label: &str) -> bool {
+    let n = label.chars().count();
+    !(label.trim().is_empty() || n > MAX_LABEL || label.chars().any(char::is_control))
+}
+
+fn check_label(label: &str, error: MenuError) -> Result<(), MenuError> {
+    if is_label(label) {
+        Ok(())
+    } else {
+        Err(error)
+    }
 }
 
 /// An accelerator as `acceleratorOf` writes it: modifiers, then one key (`CmdOrCtrl+Shift+K`, `CmdOrCtrl+,`, `CmdOrCtrl+1`).
-pub fn check_accelerator(accelerator: &str) -> Result<(), String> {
+pub fn check_accelerator(accelerator: &str) -> Result<(), MenuError> {
     let parts: Vec<&str> = accelerator.split('+').collect();
-    let (key, modifiers) = parts.split_last().ok_or("an empty accelerator")?;
+    let (key, modifiers) = parts.split_last().ok_or(MenuError::EmptyAccelerator)?;
     let mut seen = HashSet::new();
     for m in modifiers {
         if !MODIFIERS.contains(m) || !seen.insert(*m) {
-            return Err(format!("not a modifier: {m} in {accelerator}"));
+            return Err(MenuError::BadModifier);
         }
     }
     let single = key.chars().count() == 1
@@ -129,12 +198,12 @@ pub fn check_accelerator(accelerator: &str) -> Result<(), String> {
         && key.starts_with('F')
         && key[1..].parse::<u8>().is_ok_and(|n| (1..=12).contains(&n));
     if !(single || function || NAMED_KEYS.contains(key)) {
-        return Err(format!("not a key: {key} in {accelerator}"));
+        return Err(MenuError::BadKey);
     }
     Ok(())
 }
 
-fn check_id(id: &str) -> Result<(), String> {
+fn check_id(id: &str) -> Result<(), MenuError> {
     let ok = !id.is_empty()
         && id.len() <= 64
         && id.starts_with(|c: char| c.is_ascii_lowercase())
@@ -144,13 +213,13 @@ fn check_id(id: &str) -> Result<(), String> {
     if ok {
         Ok(())
     } else {
-        Err(format!("not a menu id: {id}"))
+        Err(MenuError::BadId)
     }
 }
 
 impl MenuSpec {
     /// Everything the page sent, checked before a native menu is built from it.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), MenuError> {
         let l = &self.labels;
         for (label, what) in [
             (&l.about, "about"),
@@ -170,31 +239,31 @@ impl MenuSpec {
             (&l.zoom, "zoom"),
             (&l.close, "close"),
         ] {
-            check_label(label, what)?;
+            check_label(label, MenuError::BadStandardLabel(what))?;
         }
         if self.menus.len() > MAX_MENUS {
-            return Err(format!("at most {MAX_MENUS} menus"));
+            return Err(MenuError::TooManyMenus);
         }
         let mut ids = HashSet::new();
         let mut accelerators = HashSet::new();
         for menu in &self.menus {
-            check_label(&menu.title, "menu title")?;
+            check_label(&menu.title, MenuError::BadMenuTitle)?;
             if menu.items.is_empty() || menu.items.len() > MAX_ITEMS {
-                return Err(format!("{}: 1 to {MAX_ITEMS} items", menu.title));
+                return Err(MenuError::BadItemCount);
             }
             for item in &menu.items {
                 check_id(&item.id)?;
-                check_label(&item.label, &item.id)?;
+                check_label(&item.label, MenuError::BadItemLabel)?;
                 if !ids.insert(item.id.as_str()) {
-                    return Err(format!("the id {} is used twice", item.id));
+                    return Err(MenuError::DuplicateId);
                 }
                 if let Some(a) = &item.accelerator {
                     check_accelerator(a)?;
                     if RESERVED.contains(&a.as_str()) {
-                        return Err(format!("{a} belongs to a standard menu"));
+                        return Err(MenuError::ReservedAccelerator);
                     }
                     if !accelerators.insert(a.as_str()) {
-                        return Err(format!("the shortcut {a} is used twice"));
+                        return Err(MenuError::DuplicateAccelerator);
                     }
                 }
             }

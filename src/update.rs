@@ -41,30 +41,103 @@ impl fmt::Display for Channel {
     }
 }
 
+/// The text is not the name of a channel. The text is not repeated: it came from outside.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnknownChannel;
+
+impl UnknownChannel {
+    /// The stable code the page reads.
+    pub fn code(self) -> &'static str {
+        "unknown_channel"
+    }
+}
+
+impl fmt::Display for UnknownChannel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("unknown update channel")
+    }
+}
+
+impl std::error::Error for UnknownChannel {}
+
 impl FromStr for Channel {
-    type Err = String;
+    type Err = UnknownChannel;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         Channel::ALL
             .into_iter()
             .find(|c| c.as_str() == input.trim())
-            .ok_or_else(|| format!("unknown update channel: {input}"))
+            .ok_or(UnknownChannel)
     }
 }
 
+/// Why a feed template cannot be used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FeedError {
+    /// The template does not contain `{channel}`.
+    MissingChannel,
+    NotAUrl,
+    NotHttps,
+    Credentials,
+}
+
+impl FeedError {
+    /// The stable code the page reads.
+    pub fn code(self) -> &'static str {
+        match self {
+            FeedError::MissingChannel => "feed_missing_channel",
+            FeedError::NotAUrl => "feed_not_a_url",
+            FeedError::NotHttps => "feed_not_https",
+            FeedError::Credentials => "feed_credentials",
+        }
+    }
+}
+
+impl fmt::Display for FeedError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            FeedError::MissingChannel => "the update feed must name {channel}",
+            FeedError::NotAUrl => "the update feed is not a valid URL",
+            FeedError::NotHttps => "the update feed must be served over https",
+            FeedError::Credentials => "no credentials in the update feed",
+        })
+    }
+}
+
+impl std::error::Error for FeedError {}
+
+/// The app configures the updater (or gives a feed) without a public key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MissingPubkey;
+
+impl MissingPubkey {
+    /// The stable code the page reads.
+    pub fn code(self) -> &'static str {
+        "updater_missing_pubkey"
+    }
+}
+
+impl fmt::Display for MissingPubkey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("the updater needs a pubkey in plugins.updater of tauri.conf.json")
+    }
+}
+
+impl std::error::Error for MissingPubkey {}
+
 /// The feed of `channel`: the template with `{channel}` filled in. The template must be an HTTPS address without
 /// credentials and must name the channel, so a beta build never reads the stable feed by mistake.
-pub fn feed_url(template: &str, channel: Channel) -> Result<Url, String> {
+pub fn feed_url(template: &str, channel: Channel) -> Result<Url, FeedError> {
     if !template.contains("{channel}") {
-        return Err("the update feed must name {channel}".into());
+        return Err(FeedError::MissingChannel);
     }
     let url = Url::parse(&template.replace("{channel}", channel.as_str()))
-        .map_err(|_| "the update feed is not a valid URL".to_string())?;
+        .map_err(|_| FeedError::NotAUrl)?;
     if url.scheme() != "https" {
-        return Err("the update feed must be served over https".into());
+        return Err(FeedError::NotHttps);
     }
     if !url.username().is_empty() || url.password().is_some() {
-        return Err("no credentials in the update feed".into());
+        return Err(FeedError::Credentials);
     }
     Ok(url)
 }
@@ -73,7 +146,7 @@ pub fn feed_url(template: &str, channel: Channel) -> Result<Url, String> {
 ///
 /// Called before the kit offers a feed or when the app configures the updater: without a key, nothing would check what
 /// the feed points to.
-pub fn require_pubkey(updater: Option<&serde_json::Value>) -> Result<(), String> {
+pub fn require_pubkey(updater: Option<&serde_json::Value>) -> Result<(), MissingPubkey> {
     let has_key = updater
         .and_then(|section| section.get("pubkey"))
         .and_then(serde_json::Value::as_str)
@@ -81,7 +154,7 @@ pub fn require_pubkey(updater: Option<&serde_json::Value>) -> Result<(), String>
     if has_key {
         Ok(())
     } else {
-        Err("the updater needs a pubkey in plugins.updater of tauri.conf.json".into())
+        Err(MissingPubkey)
     }
 }
 

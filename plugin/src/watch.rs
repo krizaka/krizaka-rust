@@ -1,6 +1,7 @@
 //! Watching a granted folder: a document added, renamed or removed in it tells the page (debounced), which lists the
 //! folder again through the gate. The event carries the folder, never a file's content.
 
+use crate::error::CommandError;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -20,7 +21,7 @@ pub fn start<R: Runtime>(
     app: AppHandle<R>,
     dir: PathBuf,
     event: &'static str,
-) -> Result<Watch, String> {
+) -> Result<Watch, CommandError> {
     let (tx, rx) = mpsc::channel::<()>();
     let mut watcher = notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
         if let Ok(e) = result {
@@ -31,11 +32,8 @@ pub fn start<R: Runtime>(
                 let _ = tx.send(());
             }
         }
-    })
-    .map_err(|e| e.to_string())?;
-    watcher
-        .watch(&dir, RecursiveMode::Recursive)
-        .map_err(|e| e.to_string())?;
+    })?;
+    watcher.watch(&dir, RecursiveMode::Recursive)?;
     let folder = dir.display().to_string();
     std::thread::spawn(move || {
         while rx.recv().is_ok() {

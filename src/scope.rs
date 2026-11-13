@@ -21,6 +21,18 @@ pub enum ScopeError {
     Io(String),
 }
 
+impl ScopeError {
+    /// The stable code the page reads.
+    pub fn code(&self) -> &'static str {
+        match self {
+            ScopeError::Forbidden(_) => "scope_forbidden",
+            ScopeError::NotFound(_) => "scope_not_found",
+            ScopeError::OutsideScope(_) => "scope_outside",
+            ScopeError::Io(_) => "scope_io",
+        }
+    }
+}
+
 impl std::fmt::Display for ScopeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -207,7 +219,7 @@ impl ScopeStore {
 
     /// Written atomically: a crash mid-write never loses the grants.
     pub fn save(&self, file: &Path) -> Result<(), ScopeError> {
-        crate::settings::save(file, self).map_err(ScopeError::Io)
+        crate::settings::save(file, self).map_err(|e| ScopeError::Io(e.to_string()))
     }
 
     /// Grants a folder (idempotent). Returns the canonical path stored.

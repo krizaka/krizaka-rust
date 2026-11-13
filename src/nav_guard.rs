@@ -1,21 +1,56 @@
 //! The navigation guard: a window stays on the app's own pages (its local page, or the hosted web app it shows); a web link
 //! elsewhere opens in the person's browser; anything else is refused.
 
+use std::fmt;
 use url::Url;
+
+/// Why an address cannot be a hosted app's origin. None of them repeats the address: it may hold a credential.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OriginError {
+    NotAUrl,
+    Credentials,
+    MissingHost,
+    NotHttps,
+}
+
+impl OriginError {
+    /// The stable code the page reads (never reworded).
+    pub fn code(self) -> &'static str {
+        match self {
+            OriginError::NotAUrl => "origin_not_a_url",
+            OriginError::Credentials => "origin_credentials",
+            OriginError::MissingHost => "origin_missing_host",
+            OriginError::NotHttps => "origin_not_https",
+        }
+    }
+}
+
+impl fmt::Display for OriginError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            OriginError::NotAUrl => "not a valid URL",
+            OriginError::Credentials => "no credentials in the URL",
+            OriginError::MissingHost => "missing host",
+            OriginError::NotHttps => "the app must be served over https",
+        })
+    }
+}
+
+impl std::error::Error for OriginError {}
 
 /// A hosted app must be HTTPS (plain http only for a loopback address), carry no credentials in its URL, and is reduced
 /// to its origin.
-pub fn normalize_origin(input: &str) -> Result<String, String> {
-    let url = Url::parse(input.trim()).map_err(|_| "not a valid URL".to_string())?;
+pub fn normalize_origin(input: &str) -> Result<String, OriginError> {
+    let url = Url::parse(input.trim()).map_err(|_| OriginError::NotAUrl)?;
     if !url.username().is_empty() || url.password().is_some() {
-        return Err("no credentials in the URL".into());
+        return Err(OriginError::Credentials);
     }
-    let host = url.host_str().ok_or("missing host")?;
+    let host = url.host_str().ok_or(OriginError::MissingHost)?;
     let loopback = matches!(host, "localhost" | "127.0.0.1" | "[::1]");
     match url.scheme() {
         "https" => {}
         "http" if loopback => {}
-        _ => return Err("the app must be served over https".into()),
+        _ => return Err(OriginError::NotHttps),
     }
     Ok(url.origin().ascii_serialization())
 }
