@@ -4,7 +4,7 @@
 #   - uses: krizaka/krizaka-rust/.github/actions/film@<sha>
 #     id: film
 #   - run: KRIZAKA_FILM_DIR=${{ steps.film.outputs.dir }} node scripts/desktop-journey.mjs ... --film
-#   - run: node "${{ steps.film.outputs.dir }}/join-cli.mjs" <out dir> <out>.mp4      # fails under 30 frames
+#   - run: node "${{ steps.film.outputs.dir }}/join-cli.mjs" <out dir> <out>.mp4      # fails under 3 screens
 #   - run: node "${{ steps.film.outputs.dir }}/trim-cli.mjs" <dir with web clips>       # starts on the first meaningful frame
 name: Krizaka film tooling
 description: ffmpeg and the path of the film scripts (film.mjs, webdriver.mjs, join-cli.mjs, trim-cli.mjs).
