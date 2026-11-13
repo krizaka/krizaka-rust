@@ -1,11 +1,66 @@
 //! Listing and previewing files — always through the scope (`ScopeStore::resolve`), never directly.
 
-use crate::scope::ScopedPath;
+use crate::scope::{ScopeError, ScopedPath};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
+use std::fmt;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
+
+/// Why a folder could not be listed or a file previewed. The path is not repeated.
+#[derive(Debug)]
+pub enum FilesError {
+    /// The scope refused the file, or could not open it.
+    Scope(ScopeError),
+    /// The system refused or failed to read.
+    Io(std::io::Error),
+    /// A preview was asked of something that is not a regular file.
+    NotAFile,
+}
+
+impl FilesError {
+    /// The stable code the page reads.
+    pub fn code(&self) -> &'static str {
+        match self {
+            FilesError::Scope(e) => e.code(),
+            FilesError::Io(_) => "files_io",
+            FilesError::NotAFile => "files_not_a_file",
+        }
+    }
+}
+
+impl fmt::Display for FilesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            FilesError::Scope(_) => "the scope refused the file",
+            FilesError::Io(_) => "the folder or file could not be read",
+            FilesError::NotAFile => "not a file",
+        })
+    }
+}
+
+impl std::error::Error for FilesError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            FilesError::Scope(e) => Some(e),
+            FilesError::Io(e) => Some(e),
+            FilesError::NotAFile => None,
+        }
+    }
+}
+
+impl From<ScopeError> for FilesError {
+    fn from(error: ScopeError) -> Self {
+        FilesError::Scope(error)
+    }
+}
+
+impl From<std::io::Error> for FilesError {
+    fn from(error: std::io::Error) -> Self {
+        FilesError::Io(error)
+    }
+}
 
 pub const MAX_ENTRIES: usize = 2000;
 pub const MAX_TEXT_PREVIEW: usize = 64 * 1024;
@@ -104,10 +159,10 @@ pub fn is_noise(name: &str) -> bool {
 /// ```compile_fail
 /// let _ = krizaka_rust::files::list_dir(std::path::Path::new("/etc"));
 /// ```
-pub fn list_dir(dir: &ScopedPath) -> Result<Listing, String> {
+pub fn list_dir(dir: &ScopedPath) -> Result<Listing, FilesError> {
     let mut entries: Vec<Entry> = Vec::new();
     let mut truncated = false;
-    let rd = fs::read_dir(dir.as_path()).map_err(|e| e.to_string())?;
+    let rd = fs::read_dir(dir.as_path())?;
     for item in rd.flatten() {
         let name = item.file_name().to_string_lossy().to_string();
         if is_noise(&name) {
@@ -158,12 +213,12 @@ pub fn list_dir(dir: &ScopedPath) -> Result<Listing, String> {
 /// ```compile_fail
 /// let _ = krizaka_rust::files::preview(std::path::Path::new("/etc/hosts"));
 /// ```
-pub fn preview(file: &ScopedPath) -> Result<Preview, String> {
+pub fn preview(file: &ScopedPath) -> Result<Preview, FilesError> {
     // One descriptor for the metadata and the content: the path is not looked at again once it is open.
-    let opened = file.open().map_err(|e| e.to_string())?;
-    let meta = opened.metadata().map_err(|e| e.to_string())?;
+    let opened = file.open()?;
+    let meta = opened.metadata()?;
     if !meta.is_file() {
-        return Err("not a file".into());
+        return Err(FilesError::NotAFile);
     }
     let name = file
         .as_path()
@@ -196,11 +251,9 @@ pub fn preview(file: &ScopedPath) -> Result<Preview, String> {
 }
 
 /// The first `limit` bytes of an opened file (a file that grew since its metadata was read is still capped).
-fn read_at_most(file: fs::File, limit: u64) -> Result<Vec<u8>, String> {
+fn read_at_most(file: fs::File, limit: u64) -> Result<Vec<u8>, FilesError> {
     let mut buf = Vec::new();
-    file.take(limit)
-        .read_to_end(&mut buf)
-        .map_err(|e| e.to_string())?;
+    file.take(limit).read_to_end(&mut buf)?;
     Ok(buf)
 }
 

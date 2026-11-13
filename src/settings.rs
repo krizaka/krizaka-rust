@@ -5,9 +5,62 @@
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::fmt;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
+
+/// Why a settings file could not be written.
+#[derive(Debug)]
+pub enum SettingsError {
+    /// The path has no folder to write in.
+    NoFolder,
+    /// The path does not end in a file name.
+    NotAFileName,
+    /// Creating the folder, writing, syncing or renaming failed.
+    Io(std::io::Error),
+    /// The value cannot be written as JSON.
+    Encode(serde_json::Error),
+}
+
+impl SettingsError {
+    /// The stable code the page reads.
+    pub fn code(&self) -> &'static str {
+        match self {
+            SettingsError::NoFolder => "settings_no_folder",
+            SettingsError::NotAFileName => "settings_not_a_file_name",
+            SettingsError::Io(_) => "settings_io",
+            SettingsError::Encode(_) => "settings_encode",
+        }
+    }
+}
+
+impl fmt::Display for SettingsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            SettingsError::NoFolder => "the settings path has no folder",
+            SettingsError::NotAFileName => "the settings path is not a file name",
+            SettingsError::Io(_) => "the settings file could not be written",
+            SettingsError::Encode(_) => "the settings could not be encoded",
+        })
+    }
+}
+
+impl std::error::Error for SettingsError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            SettingsError::Io(e) => Some(e),
+            SettingsError::Encode(e) => Some(e),
+            SettingsError::NoFolder | SettingsError::NotAFileName => None,
+        }
+    }
+}
+
+impl From<std::io::Error> for SettingsError {
+    fn from(error: std::io::Error) -> Self {
+        SettingsError::Io(error)
+    }
+}
 
 /// The value stored in `file`, or the default when the file is missing or is not that value.
 pub fn load<T: DeserializeOwned + Default>(file: &Path) -> T {
@@ -18,25 +71,23 @@ pub fn load<T: DeserializeOwned + Default>(file: &Path) -> T {
 }
 
 /// Writes `value` as pretty JSON, atomically (temporary file, `fsync`, rename), creating the folder if needed.
-pub fn save<T: Serialize>(file: &Path, value: &T) -> Result<(), String> {
+pub fn save<T: Serialize>(file: &Path, value: &T) -> Result<(), SettingsError> {
     let dir = file
         .parent()
         .filter(|d| !d.as_os_str().is_empty())
-        .ok_or_else(|| format!("no folder for {}", file.display()))?;
-    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let json = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
-    let name = file
-        .file_name()
-        .ok_or_else(|| format!("not a file name: {}", file.display()))?;
+        .ok_or(SettingsError::NoFolder)?;
+    fs::create_dir_all(dir)?;
+    let json = serde_json::to_string_pretty(value).map_err(SettingsError::Encode)?;
+    let name = file.file_name().ok_or(SettingsError::NotAFileName)?;
     let temporary = dir.join(format!(".{}.tmp", name.to_string_lossy()));
     {
-        let mut out = fs::File::create(&temporary).map_err(|e| e.to_string())?;
-        out.write_all(json.as_bytes()).map_err(|e| e.to_string())?;
-        out.sync_all().map_err(|e| e.to_string())?;
+        let mut out = fs::File::create(&temporary)?;
+        out.write_all(json.as_bytes())?;
+        out.sync_all()?;
     }
     fs::rename(&temporary, file).map_err(|e| {
         let _ = fs::remove_file(&temporary);
-        e.to_string()
+        SettingsError::Io(e)
     })
 }
 

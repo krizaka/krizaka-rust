@@ -8,14 +8,26 @@
 //! tokens; [`TokenVault::access_token`] returns a valid one, refreshing it when it is about to expire;
 //! [`TokenVault::sign_out`] removes both secrets (revoking at the provider is the person's, in its settings).
 
-use crate::secrets::SecretStore;
+use crate::secrets::{SecretError, SecretStore};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
 
+/// The app's HTTP client could not do the request (offline, refused, not JSON…). The text is the client's own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransportError(pub String);
+
+impl std::fmt::Display for TransportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "the request failed: {}", self.0)
+    }
+}
+
+impl std::error::Error for TransportError {}
+
 /// One form POST that answers JSON (`Accept: application/json`). The app supplies it (ureq, reqwest…); tests mock it.
 pub trait Transport {
-    fn post_form(&self, url: &str, fields: &[(&str, &str)]) -> Result<Value, String>;
+    fn post_form(&self, url: &str, fields: &[(&str, &str)]) -> Result<Value, TransportError>;
 }
 
 /// A provider's two endpoints and the app's public client id (no secret: the device flow has none).
@@ -62,8 +74,25 @@ pub struct Tokens {
 pub enum Failure {
     Expired,
     Denied,
-    /// The provider refused for another reason (`error` code) or the answer was not understood.
-    Other(String),
+    /// The request could not be made.
+    Transport(TransportError),
+    /// The provider refused for another reason: its `error` code.
+    Provider(String),
+    /// The provider's answer lacks what the flow needs (the name of what is missing).
+    Malformed(&'static str),
+}
+
+impl Failure {
+    /// The stable code the page reads.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Failure::Expired => "device_expired",
+            Failure::Denied => "device_denied",
+            Failure::Transport(_) => "device_transport",
+            Failure::Provider(_) => "device_provider",
+            Failure::Malformed(_) => "device_malformed",
+        }
+    }
 }
 
 impl std::fmt::Display for Failure {
@@ -71,8 +100,66 @@ impl std::fmt::Display for Failure {
         match self {
             Failure::Expired => write!(f, "the code expired, start again"),
             Failure::Denied => write!(f, "the request was denied"),
-            Failure::Other(m) => write!(f, "{m}"),
+            Failure::Transport(e) => write!(f, "{e}"),
+            Failure::Provider(code) => write!(f, "the provider refused: {code}"),
+            Failure::Malformed(what) => write!(f, "the provider's answer lacks {what}"),
         }
+    }
+}
+
+impl std::error::Error for Failure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Failure::Transport(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl From<TransportError> for Failure {
+    fn from(error: TransportError) -> Self {
+        Failure::Transport(error)
+    }
+}
+
+/// Why the token vault failed: the secret store, or the refresh the vault tried.
+#[derive(Debug)]
+pub enum VaultError {
+    Secrets(SecretError),
+    Refresh(Failure),
+}
+
+impl VaultError {
+    /// The stable code the page reads: the one of the failure underneath.
+    pub fn code(&self) -> &'static str {
+        match self {
+            VaultError::Secrets(e) => e.code(),
+            VaultError::Refresh(f) => f.code(),
+        }
+    }
+}
+
+impl std::fmt::Display for VaultError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VaultError::Secrets(e) => write!(f, "{e}"),
+            VaultError::Refresh(e) => write!(f, "the refresh failed: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for VaultError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            VaultError::Secrets(e) => Some(e),
+            VaultError::Refresh(e) => Some(e),
+        }
+    }
+}
+
+impl From<SecretError> for VaultError {
+    fn from(error: SecretError) -> Self {
+        VaultError::Secrets(error)
     }
 }
 
@@ -96,13 +183,11 @@ pub fn start(t: &dyn Transport, p: &Provider, scope: &str) -> Result<DeviceCode,
     if !scope.is_empty() {
         fields.push(("scope", scope));
     }
-    let v = t
-        .post_form(&p.device_code_url, &fields)
-        .map_err(Failure::Other)?;
+    let v = t.post_form(&p.device_code_url, &fields)?;
     if let Some(e) = text(&v, "error") {
-        return Err(Failure::Other(e));
+        return Err(Failure::Provider(e));
     }
-    let missing = |k: &str| Failure::Other(format!("device code answer without {k}"));
+    let missing = Failure::Malformed;
     Ok(DeviceCode {
         device_code: text(&v, "device_code").ok_or_else(|| missing("device_code"))?,
         user_code: text(&v, "user_code").ok_or_else(|| missing("user_code"))?,
@@ -133,16 +218,14 @@ fn poll_once(
     interval: u64,
     now: u64,
 ) -> Result<Result<Tokens, u64>, Failure> {
-    let v = t
-        .post_form(
-            &p.token_url,
-            &[
-                ("client_id", p.client_id.as_str()),
-                ("device_code", code.device_code.as_str()),
-                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-            ],
-        )
-        .map_err(Failure::Other)?;
+    let v = t.post_form(
+        &p.token_url,
+        &[
+            ("client_id", p.client_id.as_str()),
+            ("device_code", code.device_code.as_str()),
+            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+        ],
+    )?;
     if let Some(tokens) = tokens_from(&v, now) {
         return Ok(Ok(tokens));
     }
@@ -151,8 +234,8 @@ fn poll_once(
         Some("slow_down") => Ok(Err(interval + SLOW_DOWN_STEP)),
         Some("expired_token") => Err(Failure::Expired),
         Some("access_denied") => Err(Failure::Denied),
-        Some(other) => Err(Failure::Other(other.into())),
-        None => Err(Failure::Other("token answer not understood".into())),
+        Some(other) => Err(Failure::Provider(other.into())),
+        None => Err(Failure::Malformed("a token or an error")),
     }
 }
 
@@ -190,18 +273,17 @@ pub fn refresh(
     refresh_token: &str,
     now: u64,
 ) -> Result<Tokens, Failure> {
-    let v = t
-        .post_form(
-            &p.token_url,
-            &[
-                ("client_id", p.client_id.as_str()),
-                ("grant_type", "refresh_token"),
-                ("refresh_token", refresh_token),
-            ],
-        )
-        .map_err(Failure::Other)?;
-    tokens_from(&v, now).ok_or_else(|| {
-        Failure::Other(text(&v, "error").unwrap_or_else(|| "refresh answer not understood".into()))
+    let v = t.post_form(
+        &p.token_url,
+        &[
+            ("client_id", p.client_id.as_str()),
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+        ],
+    )?;
+    tokens_from(&v, now).ok_or_else(|| match text(&v, "error") {
+        Some(code) => Failure::Provider(code),
+        None => Failure::Malformed("a token or an error"),
     })
 }
 
@@ -229,7 +311,7 @@ impl<'a> TokenVault<'a> {
         format!("{}.{part}", self.prefix)
     }
 
-    pub fn save(&self, tokens: &Tokens) -> Result<(), String> {
+    pub fn save(&self, tokens: &Tokens) -> Result<(), SecretError> {
         self.store.set(&self.key("access"), &tokens.access_token)?;
         match &tokens.refresh_token {
             Some(r) => self.store.set(&self.key("refresh"), r)?,
@@ -242,7 +324,7 @@ impl<'a> TokenVault<'a> {
         Ok(())
     }
 
-    pub fn load(&self) -> Result<Option<Tokens>, String> {
+    pub fn load(&self) -> Result<Option<Tokens>, SecretError> {
         let Some(access_token) = self.store.get(&self.key("access"))? else {
             return Ok(None);
         };
@@ -256,14 +338,14 @@ impl<'a> TokenVault<'a> {
         }))
     }
 
-    pub fn session(&self) -> Result<Session, String> {
+    pub fn session(&self) -> Result<Session, SecretError> {
         Ok(Session {
             connected: self.load()?.is_some(),
         })
     }
 
     /// Removes both secrets at once; signing out twice is signing out.
-    pub fn sign_out(&self) -> Result<(), String> {
+    pub fn sign_out(&self) -> Result<(), SecretError> {
         for part in ["access", "refresh", "expires"] {
             self.store.remove(&self.key(part))?;
         }
@@ -277,7 +359,7 @@ impl<'a> TokenVault<'a> {
         t: &dyn Transport,
         p: &Provider,
         now: u64,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, VaultError> {
         let Some(tokens) = self.load()? else {
             return Ok(None);
         };
@@ -294,13 +376,13 @@ impl<'a> TokenVault<'a> {
                 self.save(&new)?;
                 Ok(Some(new.access_token))
             }
-            Err(Failure::Other(m))
+            Err(Failure::Provider(m))
                 if m.starts_with("bad_refresh_token") || m == "incorrect_client_credentials" =>
             {
                 self.sign_out()?;
                 Ok(None)
             }
-            Err(f) => Err(f.to_string()),
+            Err(f) => Err(VaultError::Refresh(f)),
         }
     }
 }
@@ -316,12 +398,12 @@ mod tests {
 
     /// A mocked provider: answers are queued, requests are recorded.
     struct Mock {
-        answers: RefCell<Vec<Result<Value, String>>>,
+        answers: RefCell<Vec<Result<Value, TransportError>>>,
         calls: RefCell<Vec<Call>>,
     }
 
     impl Mock {
-        fn new(answers: Vec<Result<Value, String>>) -> Self {
+        fn new(answers: Vec<Result<Value, TransportError>>) -> Self {
             Mock {
                 answers: RefCell::new(answers.into_iter().rev().collect()),
                 calls: RefCell::new(vec![]),
@@ -330,7 +412,7 @@ mod tests {
     }
 
     impl Transport for Mock {
-        fn post_form(&self, url: &str, fields: &[(&str, &str)]) -> Result<Value, String> {
+        fn post_form(&self, url: &str, fields: &[(&str, &str)]) -> Result<Value, TransportError> {
             self.calls.borrow_mut().push((
                 url.into(),
                 fields
@@ -354,8 +436,38 @@ mod tests {
         json!({"access_token": "ghu_fake", "refresh_token": "ghr_fake", "expires_in": 28800})
     }
 
-    fn pending() -> Result<Value, String> {
+    fn pending() -> Result<Value, TransportError> {
         Ok(json!({"error": "authorization_pending"}))
+    }
+
+    #[test]
+    fn a_failure_is_a_std_error_with_a_stable_code_and_its_cause() {
+        fn is_error<E: std::error::Error + Send + Sync + 'static>() {}
+        is_error::<Failure>();
+        is_error::<VaultError>();
+        let transport = Failure::Transport(TransportError("offline".into()));
+        assert!(std::error::Error::source(&transport).is_some());
+        assert!(std::error::Error::source(&Failure::Expired).is_none());
+        let codes: Vec<_> = [
+            Failure::Expired,
+            Failure::Denied,
+            transport,
+            Failure::Provider("x".into()),
+            Failure::Malformed("x"),
+        ]
+        .iter()
+        .map(Failure::code)
+        .collect();
+        assert_eq!(
+            codes,
+            [
+                "device_expired",
+                "device_denied",
+                "device_transport",
+                "device_provider",
+                "device_malformed"
+            ]
+        );
     }
 
     #[test]
@@ -383,7 +495,7 @@ mod tests {
         assert!(start(&t, &provider(), "").is_err());
         assert_eq!(
             start(&t, &provider(), "").unwrap_err(),
-            Failure::Other("device_flow_disabled".into())
+            Failure::Provider("device_flow_disabled".into())
         );
     }
 
@@ -428,9 +540,12 @@ mod tests {
             (Ok(json!({"error": "access_denied"})), Failure::Denied),
             (
                 Ok(json!({"error": "unsupported_grant_type"})),
-                Failure::Other("unsupported_grant_type".into()),
+                Failure::Provider("unsupported_grant_type".into()),
             ),
-            (Err("offline".to_string()), Failure::Other("offline".into())),
+            (
+                Err(TransportError("offline".into())),
+                Failure::Transport(TransportError("offline".into())),
+            ),
         ] {
             let t = Mock::new(vec![Ok(code_answer()), answer]);
             let c = start(&t, &provider(), "").unwrap();
@@ -531,7 +646,7 @@ mod tests {
         let store = Checked(MemorySecrets::default());
         let vault = TokenVault::new(&store, "gh");
         vault_with(&store, Some(10), Some("ghr"));
-        let t = Mock::new(vec![Err("offline".into())]);
+        let t = Mock::new(vec![Err(TransportError("offline".into()))]);
         assert!(vault.access_token(&t, &provider(), 100).is_err());
         assert!(vault.session().unwrap().connected);
     }

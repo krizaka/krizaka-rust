@@ -26,6 +26,7 @@
 //! - the update channel (`stable` / `beta`) and the feed it reads.
 
 mod commands;
+mod error;
 mod menu;
 mod watch;
 
@@ -47,6 +48,7 @@ use tauri::plugin::{Builder as PluginBuilder, TauriPlugin};
 use tauri::{AppHandle, DragDropEvent, Emitter, Manager, Runtime, State, WindowEvent};
 
 pub use commands::take_links;
+pub use error::{CommandError, CODES};
 
 /// Paths the system reports as dropped on a window, already allowed by the gate: `string[]`.
 pub const DROPPED: &str = "krizaka://dropped";
@@ -80,12 +82,8 @@ pub struct Kit {
 impl Kit {
     /// The one gate for a product's own command: a file of a granted folder, or a file dropped this session. Read it with
     /// [`ScopedPath::open`], which confirms the opened file is still the one resolved.
-    pub fn resolve(&self, path: &Path) -> Result<ScopedPath, String> {
-        self.access
-            .lock()
-            .map_err(|e| e.to_string())?
-            .resolve(path)
-            .map_err(|e| e.to_string())
+    pub fn resolve(&self, path: &Path) -> Result<ScopedPath, CommandError> {
+        Ok(error::lock(&self.access)?.resolve(path)?)
     }
 
     fn scope_file(&self) -> PathBuf {
@@ -345,6 +343,6 @@ fn opened<'a, R: Runtime>(app: &AppHandle<R>, urls: impl Iterator<Item = &'a str
 pub fn set_menu<R: Runtime>(
     app: &AppHandle<R>,
     spec: &krizaka_rust::menu::MenuSpec,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     commands::apply_menu(app, &app.kit(), spec)
 }

@@ -39,16 +39,15 @@ tauri-plugin-krizaka = { git = "https://github.com/krizaka/krizaka-rust", tag = 
 
 ```rust
 use std::io::Read;
-use tauri_plugin_krizaka::KitExt;
+use tauri_plugin_krizaka::{CommandError, KitExt};
 
 #[tauri::command]
-fn read_document(app: tauri::AppHandle, path: String) -> Result<Vec<u8>, String> {
+fn read_document(app: tauri::AppHandle, path: String) -> Result<Vec<u8>, CommandError> {
     let file = app.kit().resolve(std::path::Path::new(&path))?; // the one gate every read goes through
     let mut bytes = Vec::new();
-    file.open() // one descriptor, still the file resolved
-        .map_err(|e| e.to_string())?
+    file.open()? // one descriptor, still the file resolved
         .read_to_end(&mut bytes)
-        .map_err(|e| e.to_string())?;
+        .map_err(krizaka_rust::files::FilesError::from)?;
     Ok(bytes)
 }
 
@@ -68,6 +67,20 @@ bar); never `fs`, `shell` or `opener`. The app registers the folder picker with 
 own); a plugin registered from inside another plugin's setup deadlocks Tauri. Start an app from [`krizaka-template`](https://github.com/krizaka/krizaka-template) (target `desktop`; it was the `template-tauri-app` repository until 2026-10-30, now `krizaka-template-desktop`).
 
 Extracted from Sovkora Desktop (`krizaka/sovkora`, `apps/desktop`), whose tests came with it. macOS first (Apple Silicon, macOS 14+).
+
+## Errors
+
+No function answers `Result<_, String>` (a test scans the sources). Each module has its own error enum, a `std::error::Error`
+with a `code()`: `ScopeError`, `FilesError`, `SecretError`, `SettingsError`, `MenuError`, `FeedError`, `OriginError`,
+`device_flow::Failure` and `VaultError`. A command fails with `CommandError`, which the page receives as
+
+```json
+{ "code": "scope_outside", "message": "the path is outside the granted folders" }
+```
+
+The `code` is the contract (snake_case, never renamed): all of them are listed, with their message, in
+[`plugin/src/error.rs`](plugin/src/error.rs) (`CODES`). The message is fixed text that never repeats what the page sent
+(a path, a key, a value). A product's own command returns `CommandError` too, and `?` converts the kit's errors.
 
 ## Film tooling (`film/`, `.github/actions/film`)
 

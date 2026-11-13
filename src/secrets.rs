@@ -4,7 +4,47 @@
 //! mobile ones. This module holds the rules every store follows, and an in-memory store for tests.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Mutex;
+
+/// Why a secret could not be read, written or removed. A refused key or value is never repeated: the page may have put
+/// a secret in the wrong argument.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SecretError {
+    /// The key breaks [`check_key`].
+    BadKey,
+    /// The value breaks [`check_value`].
+    BadValue,
+    /// A lock of the store was poisoned by a panic elsewhere.
+    Poisoned,
+    /// The store itself failed (the Keychain refused, is locked or is missing). The text is the system's, never the
+    /// caller's.
+    Backend(String),
+}
+
+impl SecretError {
+    /// The stable code the page reads.
+    pub fn code(&self) -> &'static str {
+        match self {
+            SecretError::BadKey => "secret_bad_key",
+            SecretError::BadValue => "secret_bad_value",
+            SecretError::Poisoned | SecretError::Backend(_) => "secret_store_failed",
+        }
+    }
+}
+
+impl fmt::Display for SecretError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SecretError::BadKey => f.write_str("not a secret key"),
+            SecretError::BadValue => f.write_str("not a value the Keychain keeps"),
+            SecretError::Poisoned => f.write_str("the secret store is locked by a failure"),
+            SecretError::Backend(detail) => write!(f, "the secret store failed: {detail}"),
+        }
+    }
+}
+
+impl std::error::Error for SecretError {}
 
 /// The largest value stored; a bearer or a piece of the discovery manifest is far shorter.
 // @fixed: the size of a Keychain item, not a setting
@@ -12,15 +52,15 @@ pub const MAX_VALUE: usize = 4096;
 
 /// Where the secrets are kept. One Keychain service per app (its bundle id), one account per key.
 pub trait SecretStore: Send + Sync {
-    fn get(&self, key: &str) -> Result<Option<String>, String>;
-    fn set(&self, key: &str, value: &str) -> Result<(), String>;
+    fn get(&self, key: &str) -> Result<Option<String>, SecretError>;
+    fn set(&self, key: &str, value: &str) -> Result<(), SecretError>;
     /// Removing a key that is not there is not an error (signing out twice is signing out).
-    fn remove(&self, key: &str) -> Result<(), String>;
+    fn remove(&self, key: &str) -> Result<(), SecretError>;
 }
 
 /// A key is lowercase letters, digits, `.`, `-`, `_`, at most 64 characters (`verikora.session`). A refused key is not
 /// repeated in the error: the page may have put a secret in the wrong argument.
-pub fn check_key(key: &str) -> Result<(), String> {
+pub fn check_key(key: &str) -> Result<(), SecretError> {
     let ok = !key.is_empty()
         && key.len() <= 64
         && key
@@ -29,14 +69,14 @@ pub fn check_key(key: &str) -> Result<(), String> {
     if ok {
         Ok(())
     } else {
-        Err("not a secret key".into())
+        Err(SecretError::BadKey)
     }
 }
 
 /// A value is text of at most [`MAX_VALUE`] bytes, without a NUL.
-pub fn check_value(value: &str) -> Result<(), String> {
+pub fn check_value(value: &str) -> Result<(), SecretError> {
     if value.len() > MAX_VALUE || value.contains('\0') {
-        return Err("not a value the Keychain keeps".into());
+        return Err(SecretError::BadValue);
     }
     Ok(())
 }
@@ -45,18 +85,18 @@ pub fn check_value(value: &str) -> Result<(), String> {
 pub struct Checked<S: SecretStore>(pub S);
 
 impl<S: SecretStore> SecretStore for Checked<S> {
-    fn get(&self, key: &str) -> Result<Option<String>, String> {
+    fn get(&self, key: &str) -> Result<Option<String>, SecretError> {
         check_key(key)?;
         self.0.get(key)
     }
 
-    fn set(&self, key: &str, value: &str) -> Result<(), String> {
+    fn set(&self, key: &str, value: &str) -> Result<(), SecretError> {
         check_key(key)?;
         check_value(value)?;
         self.0.set(key, value)
     }
 
-    fn remove(&self, key: &str) -> Result<(), String> {
+    fn remove(&self, key: &str) -> Result<(), SecretError> {
         check_key(key)?;
         self.0.remove(key)
     }
@@ -67,20 +107,28 @@ impl<S: SecretStore> SecretStore for Checked<S> {
 pub struct MemorySecrets(Mutex<HashMap<String, String>>);
 
 impl SecretStore for MemorySecrets {
-    fn get(&self, key: &str) -> Result<Option<String>, String> {
-        Ok(self.0.lock().map_err(|e| e.to_string())?.get(key).cloned())
+    fn get(&self, key: &str) -> Result<Option<String>, SecretError> {
+        Ok(self
+            .0
+            .lock()
+            .map_err(|_| SecretError::Poisoned)?
+            .get(key)
+            .cloned())
     }
 
-    fn set(&self, key: &str, value: &str) -> Result<(), String> {
+    fn set(&self, key: &str, value: &str) -> Result<(), SecretError> {
         self.0
             .lock()
-            .map_err(|e| e.to_string())?
+            .map_err(|_| SecretError::Poisoned)?
             .insert(key.into(), value.into());
         Ok(())
     }
 
-    fn remove(&self, key: &str) -> Result<(), String> {
-        self.0.lock().map_err(|e| e.to_string())?.remove(key);
+    fn remove(&self, key: &str) -> Result<(), SecretError> {
+        self.0
+            .lock()
+            .map_err(|_| SecretError::Poisoned)?
+            .remove(key);
         Ok(())
     }
 }
@@ -123,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn a_refused_key_or_value_is_not_echoed_in_the_error() -> Result<(), String> {
+    fn a_refused_key_or_value_is_not_echoed_in_the_error() -> Result<(), &'static str> {
         let secrets = Checked(MemorySecrets::default());
         let key = format!("Bearer {TOKEN}");
         let refusals = [
@@ -134,7 +182,9 @@ mod tests {
             secrets.set("s", &TOKEN.repeat(MAX_VALUE)).err(),
         ];
         for refusal in refusals {
-            let message = refusal.ok_or("a bad key or value was accepted")?;
+            let message = refusal
+                .ok_or("a bad key or value was accepted")?
+                .to_string();
             assert!(!message.contains(TOKEN), "the input is echoed: {message}");
         }
         Ok(())

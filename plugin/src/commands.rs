@@ -1,6 +1,7 @@
 //! The commands the page calls through `@krizaka/app-desktop`. Each one goes through the kit's rules: the folder scope for
 //! a path, the key and value rules for a secret, the menu checks for the menu bar.
 
+use crate::error::{lock, CommandError};
 use crate::{menu, watch, Kit, FOLDER_CHANGED};
 use krizaka_rust::files::{self, Listing};
 use krizaka_rust::menu::MenuSpec;
@@ -11,29 +12,20 @@ use std::path::{Path, PathBuf};
 use tauri::{command, AppHandle, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
 
-type Res<T> = Result<T, String>;
+type Res<T> = Result<T, CommandError>;
 
 fn paths_of(roots: &[PathBuf]) -> Vec<String> {
     roots.iter().map(|r| r.display().to_string()).collect()
 }
 
 fn save_scope(kit: &Kit, access: &krizaka_rust::access::Access) -> Res<()> {
-    access
-        .scope()
-        .save(&kit.scope_file())
-        .map_err(|e| e.to_string())
+    Ok(access.scope().save(&kit.scope_file())?)
 }
 
 /// The folders the person granted.
 #[command]
 pub fn folders(kit: State<'_, Kit>) -> Res<Vec<String>> {
-    Ok(paths_of(
-        kit.access
-            .lock()
-            .map_err(|e| e.to_string())?
-            .scope()
-            .roots(),
-    ))
+    Ok(paths_of(lock(&kit.access)?.scope().roots()))
 }
 
 /// The native folder picker; the chosen folder is granted if it may be (never the home, the system, `~/.ssh`…).
@@ -46,12 +38,11 @@ pub async fn grant_folder<R: Runtime>(
     let Some(picked) = app.dialog().file().blocking_pick_folder() else {
         return Ok(None);
     };
-    let folder = picked.into_path().map_err(|e| e.to_string())?;
-    let mut access = kit.access.lock().map_err(|e| e.to_string())?;
-    let granted = access
-        .scope_mut()
-        .grant(&folder)
-        .map_err(|e| e.to_string())?;
+    let folder = picked
+        .into_path()
+        .map_err(|e| CommandError::Platform(e.to_string()))?;
+    let mut access = lock(&kit.access)?;
+    let granted = access.scope_mut().grant(&folder)?;
     save_scope(&kit, &access)?;
     Ok(Some(granted.display().to_string()))
 }
@@ -61,22 +52,19 @@ pub async fn grant_folder<R: Runtime>(
 pub fn revoke_folder(kit: State<'_, Kit>, path: String) -> Res<Vec<String>> {
     let root = PathBuf::from(&path);
     let roots = {
-        let mut access = kit.access.lock().map_err(|e| e.to_string())?;
+        let mut access = lock(&kit.access)?;
         access.scope_mut().revoke(&root);
         save_scope(&kit, &access)?;
         access.scope().roots().to_vec()
     };
-    kit.watches
-        .lock()
-        .map_err(|e| e.to_string())?
-        .retain(|watched, _| roots.iter().any(|r| watched.starts_with(r)));
+    lock(&kit.watches)?.retain(|watched, _| roots.iter().any(|r| watched.starts_with(r)));
     Ok(paths_of(&roots))
 }
 
 /// A folder's entries (folders first, hidden and partial files skipped, links never followed).
 #[command]
 pub fn list_folder(kit: State<'_, Kit>, path: String) -> Res<Listing> {
-    files::list_dir(&kit.resolve(Path::new(&path))?)
+    Ok(files::list_dir(&kit.resolve(Path::new(&path))?)?)
 }
 
 /// Watches a granted folder: [`FOLDER_CHANGED`] is sent (debounced) when something in it changes. Watching twice is
@@ -89,9 +77,9 @@ pub fn watch_folder<R: Runtime>(
 ) -> Res<String> {
     let dir = kit.resolve(Path::new(&path))?.into_path_buf();
     if !dir.is_dir() {
-        return Err(format!("not a folder: {}", dir.display()));
+        return Err(CommandError::NotAFolder);
     }
-    let mut watches = kit.watches.lock().map_err(|e| e.to_string())?;
+    let mut watches = lock(&kit.watches)?;
     if !watches.contains_key(&dir) {
         watches.insert(dir.clone(), watch::start(app, dir.clone(), FOLDER_CHANGED)?);
     }
@@ -100,7 +88,7 @@ pub fn watch_folder<R: Runtime>(
 
 #[command]
 pub fn unwatch_folder(kit: State<'_, Kit>, path: String) -> Res<()> {
-    let mut watches = kit.watches.lock().map_err(|e| e.to_string())?;
+    let mut watches = lock(&kit.watches)?;
     let target = Path::new(&path)
         .canonicalize()
         .unwrap_or_else(|_| PathBuf::from(&path));
@@ -111,17 +99,17 @@ pub fn unwatch_folder(kit: State<'_, Kit>, path: String) -> Res<()> {
 /// A small secret from the Keychain (the session token): `null` when there is none.
 #[command]
 pub fn secret_get(kit: State<'_, Kit>, key: String) -> Res<Option<String>> {
-    kit.secrets.get(&key)
+    Ok(kit.secrets.get(&key)?)
 }
 
 #[command]
 pub fn secret_set(kit: State<'_, Kit>, key: String, value: String) -> Res<()> {
-    kit.secrets.set(&key, &value)
+    Ok(kit.secrets.set(&key, &value)?)
 }
 
 #[command]
 pub fn secret_remove(kit: State<'_, Kit>, key: String) -> Res<()> {
-    kit.secrets.remove(&key)
+    Ok(kit.secrets.remove(&key)?)
 }
 
 /// Replaces the menu bar with the one the page describes, in its language.
@@ -130,11 +118,15 @@ pub fn set_menu<R: Runtime>(app: AppHandle<R>, kit: State<'_, Kit>, spec: MenuSp
     apply_menu(&app, &kit, &spec)
 }
 
+fn platform(error: tauri::Error) -> CommandError {
+    CommandError::Platform(error.to_string())
+}
+
 pub(crate) fn apply_menu<R: Runtime>(app: &AppHandle<R>, kit: &Kit, spec: &MenuSpec) -> Res<()> {
     spec.validate()?;
-    let built = menu::build(app, spec).map_err(|e| e.to_string())?;
-    app.set_menu(built).map_err(|e| e.to_string())?;
-    *kit.menu_ids.lock().map_err(|e| e.to_string())? = spec
+    let built = menu::build(app, spec).map_err(platform)?;
+    app.set_menu(built).map_err(platform)?;
+    *lock(&kit.menu_ids)? = spec
         .menus
         .iter()
         .flat_map(|m| m.items.iter().map(|i| i.id.clone()))
@@ -146,9 +138,7 @@ pub(crate) fn apply_menu<R: Runtime>(app: &AppHandle<R>, kit: &Kit, spec: &MenuS
 /// listened). The page listens to `krizaka://open` first, then takes these.
 #[command]
 pub fn take_links(kit: State<'_, Kit>) -> Res<Vec<String>> {
-    Ok(std::mem::take(
-        &mut *kit.pending.lock().map_err(|e| e.to_string())?,
-    ))
+    Ok(std::mem::take(&mut *lock(&kit.pending)?))
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
