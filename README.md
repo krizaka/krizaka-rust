@@ -47,7 +47,7 @@ fn read_document(app: tauri::AppHandle, path: String) -> Result<Vec<u8>, Command
     let mut bytes = Vec::new();
     file.open()? // one descriptor, still the file resolved
         .read_to_end(&mut bytes)
-        .map_err(krizaka_rust::files::FilesError::from)?;
+        .map_err(tauri_plugin_krizaka::kit::files::FilesError::from)?;
     Ok(bytes)
 }
 
