@@ -91,7 +91,7 @@ pub struct Limits {
 pub const DEFAULT_MAX_ENTRIES: usize = 2000;
 pub const CEILING_MAX_ENTRIES: usize = 20_000;
 pub const DEFAULT_MAX_TEXT_PREVIEW: usize = 64 * 1024;
-pub const CEILING_MAX_TEXT_PREVIEW: usize = MIB as usize;
+pub const CEILING_MAX_TEXT_PREVIEW: usize = 1024 * 1024;
 pub const DEFAULT_MAX_IMAGE_PREVIEW: u64 = 5 * MIB;
 pub const CEILING_MAX_IMAGE_PREVIEW: u64 = 25 * MIB;
 pub const DEFAULT_MAX_PDF_PREVIEW: u64 = 12 * MIB;
