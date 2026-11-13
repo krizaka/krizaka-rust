@@ -58,11 +58,15 @@ pub trait SecretStore: Send + Sync {
     fn remove(&self, key: &str) -> Result<(), SecretError>;
 }
 
-/// A key is lowercase letters, digits, `.`, `-`, `_`, at most 64 characters (`verikora.session`). A refused key is not
+/// The longest key.
+// @fixed: room for `<product>.<name>` of the longest product, not a setting
+pub const MAX_KEY: usize = 64;
+
+/// A key is lowercase letters, digits, `.`, `-`, `_`, at most [`MAX_KEY`] characters (`verikora.session`). A refused key is not
 /// repeated in the error: the page may have put a secret in the wrong argument.
 pub fn check_key(key: &str) -> Result<(), SecretError> {
     let ok = !key.is_empty()
-        && key.len() <= 64
+        && key.len() <= MAX_KEY
         && key
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-' | '_'));
@@ -160,7 +164,14 @@ mod tests {
     #[test]
     fn a_bad_key_or_value_never_reaches_the_store() {
         let secrets = Checked(MemorySecrets::default());
-        for key in ["", "Session", "a/b", "a b", "../x", &"k".repeat(65)] {
+        for key in [
+            "",
+            "Session",
+            "a/b",
+            "a b",
+            "../x",
+            &"k".repeat(MAX_KEY + 1),
+        ] {
             assert!(secrets.set(key, TOKEN).is_err(), "{key:?}");
             assert!(secrets.get(key).is_err(), "{key:?}");
             assert!(secrets.remove(key).is_err(), "{key:?}");

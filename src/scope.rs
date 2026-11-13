@@ -62,7 +62,7 @@ impl std::error::Error for ScopeError {}
 /// let mut scope = ScopeStore::default();
 /// scope.grant_with_home(&home.join("docs"), Some(&home))?;
 /// let file = scope.resolve_with_home(&home.join("docs/a.txt"), Some(&home))?;
-/// assert_eq!(krizaka_rust::files::preview(&file)?.text.as_deref(), Some("hello"));
+/// assert_eq!(krizaka_rust::files::preview(&file, &Default::default())?.text.as_deref(), Some("hello"));
 /// # Ok(())
 /// # }
 /// ```

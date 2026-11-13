@@ -3,7 +3,7 @@
 
 use crate::error::{lock, CommandError};
 use crate::{menu, watch, Kit, FOLDER_CHANGED};
-use krizaka_rust::files::{self, Listing};
+use krizaka_rust::files::{self, Limits, Listing};
 use krizaka_rust::menu::MenuSpec;
 use krizaka_rust::settings;
 use krizaka_rust::update::{self, Channel};
@@ -61,10 +61,12 @@ pub fn revoke_folder(kit: State<'_, Kit>, path: String) -> Res<Vec<String>> {
     Ok(paths_of(&roots))
 }
 
-/// A folder's entries (folders first, hidden and partial files skipped, links never followed).
+/// A folder's entries (folders first, hidden and partial files skipped, links never followed), sorted then cut to the
+/// `limits` of the call (the kit default for what the app leaves out, never above the ceiling).
 #[command]
-pub fn list_folder(kit: State<'_, Kit>, path: String) -> Res<Listing> {
-    Ok(files::list_dir(&kit.resolve(Path::new(&path))?)?)
+pub fn list_folder(kit: State<'_, Kit>, path: String, limits: Option<Limits>) -> Res<Listing> {
+    let limits = limits.unwrap_or_default();
+    Ok(files::list_dir(&kit.resolve(Path::new(&path))?, &limits)?)
 }
 
 /// Watches a granted folder: [`FOLDER_CHANGED`] is sent (debounced) when something in it changes. Watching twice is
