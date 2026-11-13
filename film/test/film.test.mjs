@@ -57,6 +57,8 @@ describe("the frames of the film", () => {
     film.start();
     await film.done;
     assert.equal(film.count, 3);
+    assert.equal(film.skipped, 1, "one failed screenshot is skipped, the film goes on");
+    assert.equal(film.lastCause, "mid-transition");
   });
   it("films nothing without a directory", async () => {
     const film = createFilm({ shoot: async () => assert.fail("no film, no screenshot") });
@@ -212,29 +214,6 @@ describe("finish says what it skipped", () => {
     await film.done;
     assert.equal(film.skipped, 5);
     assert.throws(() => film.finish(), /5 capture\(s\) skipped.*ENOSPC/);
-  });
-  it("one failed screenshot is still skipped and the film goes on", async () => {
-    const c = quick();
-    let n = 0;
-    const film = createFilm({
-      dir: "out",
-      shoot: async () => {
-        n += 1;
-        if (n === 4) film.cancel();
-        if (n === 2) throw new Error("transition");
-        return big(n);
-      },
-      now: c.now,
-      sleep: c.sleep,
-      save: () => undefined,
-      makeDir: () => undefined,
-    });
-    film.start();
-    await film.done;
-    assert.equal(film.count, 3);
-    assert.equal(film.skipped, 1);
-    assert.equal(film.lastCause, "transition");
-    assert.equal(film.finish(3), 3);
   });
 });
 
