@@ -5,6 +5,8 @@
 What every Krizaka **macOS app** (Tauri 2) shares, written once. Decision:
 [ADR-005](https://github.com/krizaka/.github/blob/main/docs/adr/ADR-005-tauri-app-kit.md).
 
+API documentation: <https://rust.krizaka.com> (built by `cargo doc` and published from a green `main`).
+
 Two crates in this repository:
 
 - **`krizaka-rust`** (the root): the rules, in pure Rust with no dependency on Tauri, so they are tested without a window.
@@ -97,6 +99,7 @@ What runs in the Actions tab of this repository.
 
 - **CI** (`ci.yml`): Lint, tests and build of the repository. Runs on push, on every pull request.
 - **Dependabot auto-merge** (`dependabot-automerge.yml`): Auto-merges safe Dependabot updates. Runs on every pull request.
+- **Docs site** (`pages.yml`): Builds the API docs and deploys them to GitHub Pages (rust.krizaka.com), after the Rust checks. Runs on push to main, on demand.
 - **Language guards** (`lang-guards.yml`): Rust guards: rustfmt, clippy, cargo-deny, tests. Runs on every pull request, in the merge queue, on push.
 - **Merge resolution** (`merge-resolution.yml`): Fails a PR that drops what main added without a deletion-explained line. Runs on every pull request.
 - **Rust checks** (`rust.yml`): The Rust checks of the kit. Runs called by other workflows.

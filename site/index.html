@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Krizaka Rust: what every Krizaka Mac app shares</title>
+<meta name="description" content="API documentation of krizaka-rust and tauri-plugin-krizaka: folder grants, scoped files, navigation guard, deep links, menu, secrets and the update channel.">
+<link rel="canonical" href="https://rust.krizaka.com/">
+<style>
+:root{--paper:#f7f3e8;--ink:#1d2f6f;--margin:#c8372d;--rule:#cfd8ea;--text:#1b1f2a}
+@media (prefers-color-scheme:dark){:root{--paper:#14182b;--ink:#9db4ff;--margin:#ff7a6e;--rule:#252c4a;--text:#e9ecf6}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--text);font:18px/1.7 Georgia,"Times New Roman",serif;
+background-image:repeating-linear-gradient(transparent 0 30px,var(--rule) 30px 31px)}
+main{max-width:46rem;margin:0 auto;padding:3rem 1.5rem 4rem 3.5rem;border-left:2px solid var(--margin)}
+h1{color:var(--ink);font-size:2.2rem;line-height:1.2;margin:0 0 1rem}
+h2{color:var(--ink);font-size:1.2rem;margin:2.5rem 0 .5rem}
+h2 span{color:var(--margin);margin-right:.5rem}
+a{color:var(--ink)}
+a:focus-visible{outline:3px solid var(--margin);outline-offset:2px}
+ul{padding-left:1.2rem}
+code{font:.9em ui-monospace,Menlo,monospace}
+.card{display:block;background:var(--paper);border:2px solid var(--ink);box-shadow:5px 5px 0 var(--ink);padding:1rem 1.25rem;margin:1.25rem 0;text-decoration:none;color:var(--text)}
+.card strong{color:var(--ink);display:block}
+footer{margin-top:3rem;font-size:.9rem}
+</style>
+</head>
+<body>
+<main>
+<h1>Krizaka Rust</h1>
+<p>What every Krizaka Mac app shares, written once: folder grants checked on canonical paths, files read inside a grant, the navigation guard, deep links, the menu bar, secrets, settings and the update channel.</p>
+<h2><span>§1</span>API documentation</h2>
+<a class="card" href="krizaka_rust/index.html"><strong>krizaka-rust</strong>The rules: pure Rust, no Tauri dependency, tested on any machine.</a>
+<a class="card" href="tauri_plugin_krizaka/index.html"><strong>tauri-plugin-krizaka</strong>The glue that applies the rules: commands, events, the Keychain, the native menu.</a>
+<h2><span>§2</span>Source</h2>
+<ul>
+<li><a href="https://github.com/krizaka/krizaka-rust">Repository on GitHub</a> (Apache-2.0)</li>
+<li><a href="https://github.com/krizaka/krizaka-rust/blob/main/CHANGELOG.md">Changelog</a></li>
+</ul>
+<footer>Built from <code>cargo doc</code> on every green <code>main</code>. <a href="https://www.krizaka.com">krizaka.com</a></footer>
+</main>
+</body>
+</html>

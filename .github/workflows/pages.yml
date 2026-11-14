@@ -1,0 +1,71 @@
+# rust.krizaka.com: the API docs on GitHub Pages, published only from a green `main` (krizaka-internal#3025).
+# The checks run again inside this workflow (the reusable rust.yml) and the deploy needs them: no docs from a red commit.
+name: Docs site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    name: Checks
+    permissions:
+      contents: read
+    uses: ./.github/workflows/rust.yml
+
+  build:
+    name: Build the docs
+    needs: checks
+    # Only from main, also for a manual run.
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      # The public crates only, no dependency pages; a broken link in a doc comment fails the build.
+      - run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - name: Assemble the site
+        run: |
+          rm -rf public
+          mkdir public
+          cp -R target/doc/. public/
+          cp -R site/. public/
+          test -f public/index.html && test -f public/CNAME
+          test -f public/krizaka_rust/index.html && test -f public/tauri_plugin_krizaka/index.html
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ./public
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
