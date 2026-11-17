@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="@LANG@">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>@TITLE@</title>
+<meta name="description" content="@DESC@">
+<link rel="canonical" href="https://rust.krizaka.com@PATH@">
+<link rel="alternate" hreflang="fr" href="https://rust.krizaka.com/">
+<link rel="alternate" hreflang="en" href="https://rust.krizaka.com/en/">
+<style>
+:root{--paper:#f7f3e8;--ink:#1d2f6f;--margin:#c8372d;--rule:#cfd8ea;--text:#1b1f2a;--code:#ece6d3}
+@media (prefers-color-scheme:dark){:root{--paper:#14182b;--ink:#9db4ff;--margin:#ff7a6e;--rule:#252c4a;--text:#e9ecf6;--code:#1d2340}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--text);font:18px/1.7 Georgia,"Times New Roman",serif;
+background-image:repeating-linear-gradient(transparent 0 30px,var(--rule) 30px 31px)}
+main{max-width:46rem;margin:0 auto;padding:2rem 1.5rem 4rem 3.5rem;border-left:2px solid var(--margin)}
+@media (max-width:480px){main{padding:1.5rem 1rem 3rem 1.25rem;margin-left:.5rem}}
+nav.top{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;font-size:.9rem;margin-bottom:1.5rem}
+h1{color:var(--ink);font-size:2.2rem;line-height:1.2;margin:0 0 1rem}
+h2{color:var(--ink);font-size:1.2rem;margin:2.5rem 0 .5rem}
+h2 span{color:var(--margin);margin-right:.5rem}
+a{color:var(--ink);overflow-wrap:anywhere}
+a:focus-visible{outline:3px solid var(--margin);outline-offset:2px}
+ul{padding-left:1.2rem}
+code{font:.9em ui-monospace,Menlo,monospace;overflow-wrap:anywhere}
+pre{background:var(--code);border:1px solid var(--ink);padding:.75rem 1rem;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:.8rem/1.5 ui-monospace,Menlo,monospace;margin:.75rem 0}
+pre code{font:inherit;overflow-wrap:normal}
+.card{display:block;background:var(--paper);border:2px solid var(--ink);box-shadow:5px 5px 0 var(--ink);padding:1rem 1.25rem;margin:1.25rem 5px 1.25rem 0;text-decoration:none;color:var(--text)}
+.card strong{color:var(--ink);display:block}
+.lede{font-size:1.05rem}
+footer{margin-top:3rem;font-size:.9rem}
+</style>
+</head>
+<body>
+<main>
+<nav class="top" aria-label="@NAVLABEL@"><a href="https://www.krizaka.com">krizaka.com</a><a href="@OTHERPATH@" hreflang="@OTHERLANG@" lang="@OTHERLANG@">@OTHERNAME@</a></nav>
+<h1>Krizaka Rust</h1>
+<p class="lede">@LEDE@</p>
+<h2><span>§1</span>@H_DOCS@</h2>
+<a class="card" href="/krizaka_rust/index.html"><strong>krizaka-rust</strong>@CARD1@</a>
+<a class="card" href="/tauri_plugin_krizaka/index.html"><strong>tauri-plugin-krizaka</strong>@CARD2@</a>
+<h2><span>§2</span>@H_USE@</h2>
+<p>@USE@</p>
+<pre><code>[dependencies]
+krizaka-rust = { git = "https://github.com/krizaka/krizaka-rust", tag = "v@VERSION@" }
+tauri-plugin-krizaka = { git = "https://github.com/krizaka/krizaka-rust", tag = "v@VERSION@" }</code></pre>
+<p>@PROOF@</p>
+<pre><code>let mut scope = ScopeStore::default();
+let root = scope.grant(&amp;documents)?;          // @C_GRANT@
+assert!(scope.resolve(&amp;root.join("clients/a.pdf")).is_ok());
+// @C_ESCAPE@
+let escape = root.join("clients/../../.ssh/id_ed25519");
+assert!(matches!(scope.resolve(&amp;escape), Err(ScopeError::OutsideScope(_))));
+assert!(matches!(scope.resolve(Path::new("/etc/hosts")), Err(ScopeError::OutsideScope(_))));</code></pre>
+<p><a href="@TESTURL@">@TESTLINK@</a></p>
+<h2><span>§3</span>@H_SRC@</h2>
+<ul>
+<li><a href="https://github.com/krizaka/krizaka-rust">@REPO@</a> (Apache-2.0)</li>
+<li><a href="https://github.com/krizaka/krizaka-rust/blob/main/CHANGELOG.md">@CHANGELOG@</a></li>
+</ul>
+<h2><span>§4</span>@H_FAMILY@</h2>
+<ul>
+<li><a href="https://ui.krizaka.com">Krizaka UI</a>: @D_UI@</li>
+<li><a href="https://ts.krizaka.com">Krizaka TS</a>: @D_TS@</li>
+<li><a href="https://java.krizaka.com">Krizaka Java</a>: @D_JAVA@</li>
+<li><a href="https://lab.krizaka.com">Krizaka Lab</a>: @D_LAB@</li>
+</ul>
+<footer>@BUILT@ <a href="@RUNURL@">@RUNLINK@</a> · <a href="https://www.krizaka.com">www.krizaka.com</a></footer>
+</main>
+</body>
+</html>
