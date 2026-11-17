@@ -23,6 +23,7 @@
 - One table gives a file's kind and MIME (`files::TYPES`); a new type is one line there.
 - Every refusal has a test: `..`, a symlink out of a grant, a never-grantable folder, a look-alike host.
 - A change to what may be granted or to the guard's rules is breaking: apps in the wild depend on it.
+- **Dates and times: `time` 0.3, never `chrono`** (unmaintained, RUSTSEC-2026-0543; `jiff` is pre-1.0). The apps follow it; the clock is passed in, never an ambient `now()` in a rule (krizaka-internal#4159).
 
 ## Done
 
