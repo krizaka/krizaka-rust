@@ -12,6 +12,6 @@ jobs:
   automerge:
     if: github.event.pull_request.user.login == 'dependabot[bot]'
     permissions:
-      contents: write
-      pull-requests: write
+      contents: write # gh pr merge --auto merges into the default branch
+      pull-requests: write # arms auto-merge on the pull request
     uses: krizaka/.github/.github/workflows/dependabot-automerge.yml@93402d11fa137c4344a6f15dce921f02b48e238e # main
