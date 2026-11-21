@@ -25,7 +25,7 @@ site/build.sh /tmp/site                      # preview of rust.krizaka.com (home
 
 ## Architecture & conventions
 
-- Follow the [krizaka-engineering skill](https://github.com/krizaka/krizaka-skills/blob/main/skills/krizaka-engineering/SKILL.md); search its [packages reference](https://github.com/krizaka/krizaka-skills/blob/main/skills/krizaka-engineering/references/packages.md) before writing anything generic.
+- Follow the [krizaka-engineering skill](https://github.com/krizaka/krizaka-agents/blob/main/plugins/krizaka-engineering/skills/krizaka-engineering/SKILL.md); search its [packages reference](https://github.com/krizaka/krizaka-agents/blob/main/plugins/krizaka-engineering/skills/krizaka-engineering/references/packages.md) before writing anything generic.
 - Send every read through `ScopeStore::resolve`; never use a path from the UI directly.
 - Put no product word, no network and no environment read in these crates: values arrive as parameters (`Builder`). One named exception: `scope::home_dir()` reads `HOME` (the plugin's one entry point); every rule takes the home as a parameter (`*_with_home`), so every refusal is tested without the environment.
 - Make a limit a per-call parameter (`files::Limits`): the app passes it, the kit has a default and a hard ceiling for each; a value above the ceiling is lowered, never obeyed. Sort a list, then cut it.
@@ -68,4 +68,4 @@ site/build.sh /tmp/site                      # preview of rust.krizaka.com (home
 - [README.md](README.md): modules, the plugin, usage; API documentation at <https://rust.krizaka.com>.
 - [CHANGELOG.md](CHANGELOG.md): release notes.
 - [Org standards](https://github.com/krizaka/.github/tree/main/docs/standards) of krizaka/.github; the [engineering charter](https://github.com/krizaka/.github/blob/main/AGENTS.template.md).
-- [krizaka-engineering skill](https://github.com/krizaka/krizaka-skills/blob/main/skills/krizaka-engineering/SKILL.md).
+- [krizaka-engineering skill](https://github.com/krizaka/krizaka-agents/blob/main/plugins/krizaka-engineering/skills/krizaka-engineering/SKILL.md).
