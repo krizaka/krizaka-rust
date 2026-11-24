@@ -14,4 +14,4 @@ jobs:
     permissions:
       contents: write # gh pr merge --auto merges into the default branch
       pull-requests: write # arms auto-merge on the pull request
-    uses: krizaka/.github/.github/workflows/dependabot-automerge.yml@84a22e72359caf315d8bf346f4a31cdb22f25997 # main
+    uses: krizaka/.github/.github/workflows/dependabot-automerge.yml@a6e5270354f053e7d225c35ea45c5aa429ba5878 # main
