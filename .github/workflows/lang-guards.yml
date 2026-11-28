@@ -19,7 +19,7 @@ jobs:
   rust:
     permissions:
       contents: read
-    uses: krizaka/.github/.github/workflows/rust-quality.yml@b44f5bd2fd388e70c62d22542f61eb7d4d9939ee # main
+    uses: krizaka/.github/.github/workflows/rust-quality.yml@3ed4594243c9874520122685c597faf0cdeecd89 # main
     with:
       working-directory: .
       runs-on: macos-latest
